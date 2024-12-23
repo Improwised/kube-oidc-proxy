@@ -1,0 +1,6 @@
+clusters:
+  - name: k8s
+    kubeconfig: "<path of k8s's kubeconfig>" 
+
+  - name: kind
+    kubeconfig: "<path of kind's kubeconfig>"

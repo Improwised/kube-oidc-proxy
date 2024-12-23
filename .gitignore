@@ -2,3 +2,4 @@
 /bin
 /demo/config.jsonnet
 /artifacts/
+vendor

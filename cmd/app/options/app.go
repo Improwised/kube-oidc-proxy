@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/pflag"
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/jetstack/kube-oidc-proxy/pkg/util/flags"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/flags"
 )
 
 type KubeOIDCProxyOptions struct {
+	Cluster              Cluster
 	DisableImpersonation bool
 	ReadinessProbePort   int
 
@@ -29,6 +30,10 @@ type ExtraHeaderOptions struct {
 	EnableClientIPExtraUserHeader bool
 
 	ExtraUserHeaders map[string][]string
+}
+
+type Cluster struct {
+	Config string
 }
 
 func NewKubeOIDCProxyOptions(nfs *cliflag.NamedFlagSets) *KubeOIDCProxyOptions {
@@ -51,6 +56,7 @@ func (k *KubeOIDCProxyOptions) AddFlags(fs *pflag.FlagSet) *KubeOIDCProxyOptions
 
 	k.TokenPassthrough.AddFlags(fs)
 	k.ExtraHeaderOptions.AddFlags(fs)
+	k.Cluster.AddFlags(fs)
 
 	return k
 }
@@ -80,4 +86,10 @@ func (e *ExtraHeaderOptions) AddFlags(fs *pflag.FlagSet) {
 		"(Alpha) A list of key value pairs of extra user headers to pass with "+
 			"proxied requests as part of the impersonated request. A single key can "+
 			"hold multiple values.")
+}
+
+func (k *Cluster) AddFlags(fs *pflag.FlagSet) {
+	//? Question: need to change flags name ??
+	fs.StringVar(&k.Config, "clusters-config", k.Config,
+		"Path to the YAML file containing an array of clusters. Each cluster in the array includes two fields: name and kubeconfig.")
 }

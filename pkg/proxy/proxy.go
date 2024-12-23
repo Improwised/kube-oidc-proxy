@@ -9,7 +9,16 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"time"
+
+	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/audit"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/context"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/hooks"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/logging"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 
 	"k8s.io/apiserver/pkg/apis/apiserver"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
@@ -19,14 +28,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
-
-	"github.com/jetstack/kube-oidc-proxy/cmd/app/options"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/audit"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/context"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/hooks"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/logging"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
-	"github.com/jetstack/kube-oidc-proxy/pkg/proxy/tokenreview"
 )
 
 const (
@@ -36,8 +37,8 @@ const (
 
 var (
 	errUnauthorized          = errors.New("Unauthorized")
-	errNoName                = errors.New("No name in OIDC info")
-	errNoImpersonationConfig = errors.New("No impersonation configuration in context")
+	errNoName                = errors.New("no name in OIDC info")
+	errNoImpersonationConfig = errors.New("no impersonation configuration in context")
 )
 
 type Config struct {
@@ -51,19 +52,26 @@ type Config struct {
 	ExtraUserHeadersClientIPEnabled bool
 }
 
+type ClusterConfig struct {
+	Name                  string
+	Path                  string
+	RestConfig            *rest.Config
+	proxyHandler          *httputil.ReverseProxy
+	TokenReviewer         *tokenreview.TokenReview
+	SubjectAccessReviewer *subjectaccessreview.SubjectAccessReview
+	clientTransport       http.RoundTripper
+	noAuthClientTransport http.RoundTripper
+}
+
 type errorHandlerFn func(http.ResponseWriter, *http.Request, error)
 
 type Proxy struct {
-	oidcRequestAuther     *bearertoken.Authenticator
-	tokenAuther           authenticator.Token
-	tokenReviewer         *tokenreview.TokenReview
-	subjectAccessReviewer *subjectaccessreview.SubjectAccessReview
-	secureServingInfo     *server.SecureServingInfo
-	auditor               *audit.Audit
+	oidcRequestAuther *bearertoken.Authenticator
+	tokenAuther       authenticator.Token
+	secureServingInfo *server.SecureServingInfo
+	auditor           *audit.Audit
 
-	restConfig            *rest.Config
-	clientTransport       http.RoundTripper
-	noAuthClientTransport http.RoundTripper
+	ClustersConfig []*ClusterConfig
 
 	config *Config
 
@@ -82,11 +90,9 @@ func (caFromFile CAFromFile) CurrentCABundleContent() []byte {
 	return res
 }
 
-func New(restConfig *rest.Config,
+func New(clustersConfig []*ClusterConfig,
 	oidcOptions *options.OIDCAuthenticationOptions,
 	auditOptions *options.AuditOptions,
-	tokenReviewer *tokenreview.TokenReview,
-	subjectAccessReviewer *subjectaccessreview.SubjectAccessReview,
 	ssinfo *server.SecureServingInfo,
 	config *Config) (*Proxy, error) {
 
@@ -132,64 +138,77 @@ func New(restConfig *rest.Config,
 	}
 
 	return &Proxy{
-		restConfig:            restConfig,
-		hooks:                 hooks.New(),
-		tokenReviewer:         tokenReviewer,
-		subjectAccessReviewer: subjectAccessReviewer,
-		secureServingInfo:     ssinfo,
-		config:                config,
-		oidcRequestAuther:     bearertoken.New(tokenAuther),
-		tokenAuther:           tokenAuther,
-		auditor:               auditor,
+		ClustersConfig:    clustersConfig,
+		hooks:             hooks.New(),
+		secureServingInfo: ssinfo,
+		config:            config,
+		oidcRequestAuther: bearertoken.New(tokenAuther),
+		tokenAuther:       tokenAuther,
+		auditor:           auditor,
 	}, nil
 }
 
 func (p *Proxy) Run(stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, error) {
 	// standard round tripper for proxy to API Server
-	clientRT, err := p.roundTripperForRestConfig(p.restConfig)
-	if err != nil {
-		return nil, nil, err
-	}
-	p.clientTransport = clientRT
 
-	// No auth round tripper for no impersonation
-	if p.config.DisableImpersonation || p.config.TokenReview {
-		noAuthClientRT, err := p.roundTripperForRestConfig(&rest.Config{
-			APIPath: p.restConfig.APIPath,
-			Host:    p.restConfig.Host,
-			Timeout: p.restConfig.Timeout,
-			TLSClientConfig: rest.TLSClientConfig{
-				CAFile: p.restConfig.CAFile,
-				CAData: p.restConfig.CAData,
-			},
-		})
+	for _, cluster := range p.ClustersConfig {
+		clientRT, err := p.roundTripperForRestConfig(cluster.RestConfig)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		p.noAuthClientTransport = noAuthClientRT
-	}
+		url, err := url.Parse(cluster.RestConfig.Host)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse url: %s", err)
+		}
 
-	// get API server url
-	url, err := url.Parse(p.restConfig.Host)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse url: %s", err)
-	}
+		// create proxy
+		proxyHandler := httputil.NewSingleHostReverseProxy(url)
 
-	p.handleError = p.newErrorHandler()
+		// set proxy transport(use to forward request to API server)
+		cluster.clientTransport = clientRT
+		proxyHandler.Transport = cluster
+
+		// No auth round tripper for no impersonation
+		if p.config.DisableImpersonation || p.config.TokenReview {
+			noAuthClientRT, err := p.roundTripperForRestConfig(&rest.Config{
+				APIPath: cluster.RestConfig.APIPath,
+				Host:    cluster.RestConfig.Host,
+				Timeout: cluster.RestConfig.Timeout,
+				TLSClientConfig: rest.TLSClientConfig{
+					CAFile: cluster.RestConfig.CAFile,
+					CAData: cluster.RestConfig.CAData,
+				},
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+
+			cluster.noAuthClientTransport = noAuthClientRT
+		}
+
+		// Set up error handler
+		proxyHandler.ErrorHandler = p.handleError
+		proxyHandler.FlushInterval = p.config.FlushInterval
+		p.handleError = p.newErrorHandler()
+		cluster.proxyHandler = proxyHandler
+		// proxyHandler.ModifyResponse =
+	}
 
 	// Set up proxy handler using proxy
-	proxyHandler := httputil.NewSingleHostReverseProxy(url)
-	proxyHandler.Transport = p
-	proxyHandler.ErrorHandler = p.handleError
-	proxyHandler.FlushInterval = p.config.FlushInterval
-
-	waitCh, listenerStoppedCh, err := p.serve(proxyHandler, stopCh)
+	waitCh, listenerStoppedCh, err := p.serve(http.HandlerFunc(p.httpHandler), stopCh)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return waitCh, listenerStoppedCh, nil
+}
+
+func (p *Proxy) httpHandler(w http.ResponseWriter, r *http.Request) {
+	//TODO: validate url path
+	clusterName := strings.Split(r.URL.Path, "/")[1]
+	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/"+clusterName)
+	p.getCurrentClusterConfig(clusterName).proxyHandler.ServeHTTP(w, r)
 }
 
 func (p *Proxy) serve(handler http.Handler, stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, error) {
@@ -211,7 +230,7 @@ func (p *Proxy) serve(handler http.Handler, stopCh <-chan struct{}) (<-chan stru
 }
 
 // RoundTrip is called last and is used to manipulate the forwarded request using context.
-func (p *Proxy) RoundTrip(req *http.Request) (*http.Response, error) {
+func (p *ClusterConfig) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Here we have successfully authenticated so now need to determine whether
 	// we need use impersonation or not.
 
@@ -243,10 +262,14 @@ func (p *Proxy) reviewToken(rw http.ResponseWriter, req *http.Request) bool {
 	var remoteAddr string
 	req, remoteAddr = context.RemoteAddr(req)
 
+	clusterName := p.GetClusterName(req.URL.Path)
+	req.URL.Path = strings.TrimPrefix(req.URL.Path, "/"+clusterName)
+	config := p.getCurrentClusterConfig(clusterName)
+
 	klog.V(4).Infof("attempting to validate a token in request using TokenReview endpoint(%s)",
 		remoteAddr)
 
-	ok, err := p.tokenReviewer.Review(req)
+	ok, err := config.TokenReviewer.Review(req)
 	if err != nil {
 		klog.Errorf("unable to authenticate the request via TokenReview due to an error (%s): %s",
 			remoteAddr, err)
@@ -299,4 +322,17 @@ func (p *Proxy) OIDCTokenAuthenticator() authenticator.Token {
 
 func (p *Proxy) RunPreShutdownHooks() error {
 	return p.hooks.RunPreShutdownHooks()
+}
+
+func (p *Proxy) getCurrentClusterConfig(clusterName string) *ClusterConfig {
+	for _, cluster := range p.ClustersConfig {
+		if cluster.Name == clusterName {
+			return cluster
+		}
+	}
+	return nil
+}
+
+func (p *Proxy) GetClusterName(path string) string {
+	return strings.Split(path, "/")[1]
 }
