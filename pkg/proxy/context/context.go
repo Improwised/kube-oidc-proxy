@@ -2,7 +2,6 @@
 package context
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/sebest/xff"
@@ -85,8 +84,4 @@ func RemoteAddr(req *http.Request) (*http.Request, string) {
 	}
 
 	return req, clientAddress
-}
-
-func WithNamespace(parent context.Context, namespace string) context.Context {
-	return request.WithNamespace(parent, namespace)
 }

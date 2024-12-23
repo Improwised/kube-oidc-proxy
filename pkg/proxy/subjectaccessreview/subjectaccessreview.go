@@ -36,7 +36,7 @@ func New(subjectAccessReviewer clientazv1.SubjectAccessReviewInterface) (*Subjec
 func (subjectAccessReview *SubjectAccessReview) CheckAuthorizedForImpersonation(req *http.Request, requester user.Info) (user.Info, error) {
 
 	impersonatedUser := req.Header.Get("impersonate-user")
-	fmt.Println("impersonatedUser: ", impersonatedUser)
+
 	hasImpersonatedUser := impersonatedUser != ""
 
 	hasImpersonation := false
