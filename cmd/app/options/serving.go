@@ -17,7 +17,7 @@ func NewSecureServingOptions(nfs *cliflag.NamedFlagSets) *SecureServingOptions {
 	s := &SecureServingOptions{
 		SecureServingOptions: &apiserveroptions.SecureServingOptions{
 			BindAddress: net.ParseIP("0.0.0.0"),
-			BindPort:    6445,
+			BindPort:    6443,
 			Required:    true,
 			ServerCert: apiserveroptions.GeneratableKeyCert{
 				PairName:      AppName,
