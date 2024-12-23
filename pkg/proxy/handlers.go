@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"k8s.io/apiserver/pkg/authentication/user"
 	authuser "k8s.io/apiserver/pkg/authentication/user"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/client-go/transport"
@@ -94,7 +93,7 @@ func (p *Proxy) withImpersonateRequest(handler http.Handler) http.Handler {
 			return
 		}
 
-		var targetForContext user.Info
+		var targetForContext authuser.Info
 		targetForContext = nil
 
 		var remoteAddr string
@@ -121,7 +120,7 @@ func (p *Proxy) withImpersonateRequest(handler http.Handler) http.Handler {
 		if p.hasImpersonation(req.Header) {
 			// if impersonation headers are present, let's check to see
 			// if the user is authorized to perform the impersonation
-			target, err := p.subjectAccessReviewer.CheckAuthorizedForImpersonation(req, user)
+			target, err := p.getCurrentClusterConfig(p.GetClusterName(req.URL.Path)).SubjectAccessReviewer.CheckAuthorizedForImpersonation(req, user)
 
 			if err != nil {
 				p.handleError(rw, req, err)
@@ -270,7 +269,7 @@ func (p *Proxy) newErrorHandler() func(rw http.ResponseWriter, r *http.Request, 
 				http.Error(rw, err.Error(), http.StatusForbidden)
 			} else {
 				klog.Errorf("unknown error (%s): %s", r.RemoteAddr, err)
-				http.Error(rw, "", http.StatusInternalServerError)
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
 			}
 
 		}

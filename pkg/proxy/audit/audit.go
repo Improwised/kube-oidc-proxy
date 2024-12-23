@@ -9,7 +9,8 @@ import (
 	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	"k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
-	"k8s.io/apiserver/pkg/util/version"
+	"k8s.io/component-base/version"
+	"k8s.io/klog/v2"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
 )
@@ -71,6 +72,7 @@ func (a *Audit) Shutdown() error {
 // WithRequest will wrap the given handler to inject the request information
 // into the context which is then used by the wrapped audit handler.
 func (a *Audit) WithRequest(handler http.Handler) http.Handler {
+	klog.V(4).Infof("Enabling audit for proxy requests")
 	handler = genericapifilters.WithAudit(handler, a.serverConfig.AuditBackend, a.serverConfig.AuditPolicyRuleEvaluator, a.serverConfig.LongRunningFunc)
 	handler = genericapifilters.WithAuditInit(handler)
 	return genericapifilters.WithRequestInfo(handler, a.serverConfig.RequestInfoResolver)

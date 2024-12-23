@@ -2,12 +2,14 @@
 package app
 
 import (
+	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"k8s.io/apiserver/pkg/server"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
 	"github.com/Improwised/kube-oidc-proxy/pkg/probe"
@@ -39,32 +41,44 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 			if err := opts.Validate(cmd); err != nil {
 				return err
 			}
+			
+			// check if the cluster config file exists
+			if _, err := os.Stat(opts.App.Cluster.Config); err != nil {
+				return err
+			}
 
-			// Here we determine to either use custom or 'in-cluster' client configuration
-			var err error
-			var restConfig *rest.Config
-			if opts.Client.ClientFlagsChanged(cmd) {
-				// One or more client flags have been set to use client flag built
-				// config
-				restConfig, err = opts.Client.ToRESTConfig()
+			// Load cluster config
+			clustersConfig, err := LoadClusterConfig(opts.App.Cluster.Config)
+			if err != nil {
+				return err
+			}
+
+			// create a rest config for each cluster
+			for _, cluster := range clustersConfig {
+				ConfigFlags := &genericclioptions.ConfigFlags{
+					KubeConfig: &cluster.Path,
+				}
+				tempClient := &options.ClientOptions{
+					ConfigFlags: ConfigFlags,
+				}
+
+				r, err := tempClient.ToRESTConfig()
 				if err != nil {
 					return err
 				}
-
-			} else {
-				// No client flags have been set so default to in-cluster config
-				restConfig, err = rest.InClusterConfig()
-				if err != nil {
-					return err
-				}
+				cluster.RestConfig = r
 			}
 
 			// Initialise token reviewer if enabled
 			var tokenReviewer *tokenreview.TokenReview
 			if opts.App.TokenPassthrough.Enabled {
-				tokenReviewer, err = tokenreview.New(restConfig, opts.App.TokenPassthrough.Audiences)
-				if err != nil {
-					return err
+
+				for _, cluster := range clustersConfig {
+					tokenReviewer, err = tokenreview.New(cluster.RestConfig, opts.App.TokenPassthrough.Audiences)
+					if err != nil {
+						return err
+					}
+					cluster.TokenReviewer = tokenReviewer
 				}
 			}
 
@@ -85,21 +99,26 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				ExtraUserHeadersClientIPEnabled: opts.App.ExtraHeaderOptions.EnableClientIPExtraUserHeader,
 			}
 
-			// Setup Subject Access Review
-			kubeclient, err := kubernetes.NewForConfig(restConfig)
-			if err != nil {
-				return err
-			}
+			// Setup Subject Access Review for each cluster
+			for _, cluster := range clustersConfig {
+				kubeclient, err := kubernetes.NewForConfig(cluster.RestConfig)
+				if err != nil {
+					return err
+				}
 
-			subectAccessReviewer, err := subjectaccessreview.New(kubeclient.AuthorizationV1().SubjectAccessReviews())
+				subectAccessReviewer, err := subjectaccessreview.New(kubeclient.AuthorizationV1().SubjectAccessReviews())
+				kubeclient.AuthorizationV1().RESTClient()
+				if err != nil {
+					return err
+				}
 
-			if err != nil {
-				return err
+				cluster.SubjectAccessReviewer = subectAccessReviewer
+
 			}
 
 			// Initialise proxy with OIDC token authenticator
-			p, err := proxy.New(restConfig, opts.OIDCAuthentication, opts.Audit,
-				tokenReviewer, subectAccessReviewer, secureServingInfo, proxyConfig)
+			p, err := proxy.New(clustersConfig, opts.OIDCAuthentication, opts.Audit,
+				secureServingInfo, proxyConfig)
 			if err != nil {
 				return err
 			}
@@ -132,4 +151,32 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 			return nil
 		},
 	}
+}
+
+func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
+	var clusterList []*proxy.ClusterConfig
+	var parsedConfig struct {
+		Clusters []struct {
+			Name       string `yaml:"name"`
+			Kubeconfig string `yaml:"kubeconfig"`
+		} `yaml:"clusters"`
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// Parse the YAML into the Config struct
+	err = yaml.Unmarshal(data, &parsedConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, cluster := range parsedConfig.Clusters {
+		clusterList = append(clusterList, &proxy.ClusterConfig{
+			Name: cluster.Name,
+			Path: cluster.Kubeconfig,
+		})
+	}
+	return clusterList, nil
 }
