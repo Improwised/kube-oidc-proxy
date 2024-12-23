@@ -205,10 +205,14 @@ func (p *Proxy) Run(stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, e
 }
 
 func (p *Proxy) httpHandler(w http.ResponseWriter, r *http.Request) {
-	//TODO: validate url path
 	clusterName := strings.Split(r.URL.Path, "/")[1]
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/"+clusterName)
-	p.getCurrentClusterConfig(clusterName).proxyHandler.ServeHTTP(w, r)
+	proxy:=p.getCurrentClusterConfig(clusterName)
+	if proxy == nil {
+		p.handleError(w, r, errUnauthorized)
+		return
+	}
+	proxy.proxyHandler.ServeHTTP(w, r)
 }
 
 func (p *Proxy) serve(handler http.Handler, stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, error) {
