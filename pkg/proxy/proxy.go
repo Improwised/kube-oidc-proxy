@@ -205,9 +205,9 @@ func (p *Proxy) Run(stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, e
 }
 
 func (p *Proxy) httpHandler(w http.ResponseWriter, r *http.Request) {
-	clusterName := strings.Split(r.URL.Path, "/")[1]
+	clusterName := p.GetClusterName(r.URL.Host)
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/"+clusterName)
-	proxy:=p.getCurrentClusterConfig(clusterName)
+	proxy := p.getCurrentClusterConfig(clusterName)
 	if proxy == nil {
 		p.handleError(w, r, errUnauthorized)
 		return
@@ -338,5 +338,10 @@ func (p *Proxy) getCurrentClusterConfig(clusterName string) *ClusterConfig {
 }
 
 func (p *Proxy) GetClusterName(path string) string {
-	return strings.Split(path, "/")[1]
+	// validate the length of the path
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
 }
