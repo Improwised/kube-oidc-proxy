@@ -205,7 +205,7 @@ func (p *Proxy) Run(stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, e
 }
 
 func (p *Proxy) httpHandler(w http.ResponseWriter, r *http.Request) {
-	clusterName := p.GetClusterName(r.URL.Host)
+	clusterName := p.GetClusterName(r.URL.Path)
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/"+clusterName)
 	proxy := p.getCurrentClusterConfig(clusterName)
 	if proxy == nil {
