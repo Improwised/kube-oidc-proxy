@@ -2,6 +2,7 @@
 package context
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/sebest/xff"
@@ -84,4 +85,14 @@ func RemoteAddr(req *http.Request) (*http.Request, string) {
 	}
 
 	return req, clientAddress
+}
+
+// WithNamespace will add namespace into context
+func WithNamespace(parent context.Context, namespace string) context.Context {
+	return request.WithNamespace(parent, namespace)
+}
+
+// WithRequestInfo added request info into context
+func WithRequestInfo(parent context.Context, info *genericapirequest.RequestInfo) context.Context {
+	return request.WithRequestInfo(parent, info)
 }

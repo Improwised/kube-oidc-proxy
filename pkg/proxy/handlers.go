@@ -7,9 +7,12 @@ import (
 	"strings"
 
 	authuser "k8s.io/apiserver/pkg/authentication/user"
+	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/kubeapiserver/admission/exclusion"
 
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/audit"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/context"
@@ -19,6 +22,7 @@ import (
 
 func (p *Proxy) withHandlers(handler http.Handler) http.Handler {
 	// Set up proxy handlers
+	handler = p.WithRBACHandler(handler)
 	handler = p.auditor.WithRequest(handler)
 	handler = p.withImpersonateRequest(handler)
 	handler = p.withAuthenticateRequest(handler)
@@ -27,6 +31,54 @@ func (p *Proxy) withHandlers(handler http.Handler) http.Handler {
 	p.hooks.AddPreShutdownHook("AuditBackend", p.auditor.Shutdown)
 
 	return handler
+}
+
+func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+
+		clusterName := p.GetClusterName(req.URL.Path)
+		ClusterConfig := p.getCurrentClusterConfig(clusterName)
+		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/"+clusterName)
+
+		reqInfo, err := p.requestInfo.NewRequestInfo(req)
+		if err != nil {
+			p.handleError(rw, req, err)
+			return
+		}
+
+		// skip validation in Excluded resourse
+		// Group: "authentication.k8s.io", Resource: "selfsubjectreviews",
+		// Group: "authentication.k8s.io", Resource: "tokenreviews",
+		// Group: "authorization.k8s.io", Resource: "localsubjectaccessreviews",
+		// Group: "authorization.k8s.io", Resource: "selfsubjectaccessreviews",
+		// Group: "authorization.k8s.io", Resource: "selfsubjectrulesreviews",
+		// Group: "authorization.k8s.io", Resource: "subjectaccessreviews",
+		for _, groupResource := range exclusion.Excluded() {
+			if groupResource.Group == reqInfo.APIGroup && groupResource.Resource == reqInfo.Resource {
+				req.URL.Path = "/" + clusterName + req.URL.Path
+				handler.ServeHTTP(rw, req)
+				return
+			}
+		}
+		
+		// add request info into context
+		req = req.WithContext(context.WithRequestInfo(req.Context(), reqInfo))
+		
+		// validate resource request
+		if reqInfo.IsResourceRequest {
+			authHandler := genericapifilters.WithAuthorization(handler, ClusterConfig.Authorizer, scheme.Codecs)
+			req.URL.Path = "/" + clusterName + req.URL.Path
+			authHandler.ServeHTTP(rw, req)
+			return
+		}
+	
+		// Eg. non resource request
+		// 		/api
+		//		/version etc..
+		req.URL.Path = "/" + clusterName + req.URL.Path
+		handler.ServeHTTP(rw, req)
+
+	})
 }
 
 // withAuthenticateRequest adds the proxy authentication handler to a chain.

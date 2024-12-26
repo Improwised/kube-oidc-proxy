@@ -17,6 +17,8 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+
+	rbacvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 func NewRunCommand(stopCh <-chan struct{}) *cobra.Command {
@@ -41,7 +43,7 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 			if err := opts.Validate(cmd); err != nil {
 				return err
 			}
-			
+
 			// check if the cluster config file exists
 			if _, err := os.Stat(opts.App.Cluster.Config); err != nil {
 				return err
@@ -53,7 +55,16 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				return err
 			}
 
-			// create a rest config for each cluster
+			// check if the cluster role config file exists
+			if _, err := os.Stat(opts.App.Cluster.RoleConfig); err != nil {
+				return err
+			}
+
+			clustersRoleConfigMap, err := util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
+			if err != nil {
+				return err
+			}
+
 			for _, cluster := range clustersConfig {
 				ConfigFlags := &genericclioptions.ConfigFlags{
 					KubeConfig: &cluster.Path,
@@ -114,6 +125,15 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 
 				cluster.SubjectAccessReviewer = subectAccessReviewer
 
+			}
+
+			for clusterName, RBACConfig := range clustersRoleConfigMap {
+				for _, cluster := range clustersConfig {
+					if cluster.Name == clusterName {
+						_, StaticRoles := rbacvalidation.NewTestRuleResolver(RBACConfig.Roles, RBACConfig.RoleBindings, RBACConfig.ClusterRoles, RBACConfig.ClusterRoleBindings)
+						cluster.Authorizer = util.NewAuthorizer(StaticRoles)
+					}
+				}
 			}
 
 			// Initialise proxy with OIDC token authenticator

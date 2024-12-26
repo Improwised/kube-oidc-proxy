@@ -26,6 +26,11 @@ require (
 	sigs.k8s.io/kind v0.24.0
 )
 
+require (
+	k8s.io/apiextensions-apiserver v0.32.0 // indirect
+	k8s.io/controller-manager v0.32.0 // indirect
+)
+
 replace (
 	github.com/emicklei/go-restful => github.com/emicklei/go-restful/v3 v3.8.0
 	golang.org/x/crypto => golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
@@ -132,8 +137,8 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/component-helpers v0.32.0
+	gopkg.in/yaml.v3 v3.0.1
+	k8s.io/component-helpers v0.32.0 // indirect
 	k8s.io/kms v0.32.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect

@@ -20,14 +20,17 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/apis/apiserver"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/request/bearertoken"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 )
 
 const (
@@ -61,6 +64,7 @@ type ClusterConfig struct {
 	SubjectAccessReviewer *subjectaccessreview.SubjectAccessReview
 	clientTransport       http.RoundTripper
 	noAuthClientTransport http.RoundTripper
+	Authorizer            *rbac.RBACAuthorizer
 }
 
 type errorHandlerFn func(http.ResponseWriter, *http.Request, error)
@@ -77,6 +81,8 @@ type Proxy struct {
 
 	hooks       *hooks.Hooks
 	handleError errorHandlerFn
+
+	requestInfo genericapirequest.RequestInfoFactory
 }
 
 // implement oidc.CAContentProvider to load
@@ -137,6 +143,8 @@ func New(clustersConfig []*ClusterConfig,
 		return nil, err
 	}
 
+	requestInfo := genericapirequest.RequestInfoFactory{APIPrefixes: sets.NewString("api", "apis"), GrouplessAPIPrefixes: sets.NewString("api")}
+
 	return &Proxy{
 		ClustersConfig:    clustersConfig,
 		hooks:             hooks.New(),
@@ -145,6 +153,7 @@ func New(clustersConfig []*ClusterConfig,
 		oidcRequestAuther: bearertoken.New(tokenAuther),
 		tokenAuther:       tokenAuther,
 		auditor:           auditor,
+		requestInfo:       requestInfo,
 	}, nil
 }
 
@@ -205,7 +214,7 @@ func (p *Proxy) Run(stopCh <-chan struct{}) (<-chan struct{}, <-chan struct{}, e
 }
 
 func (p *Proxy) httpHandler(w http.ResponseWriter, r *http.Request) {
-	clusterName := p.GetClusterName(r.URL.Host)
+	clusterName := p.GetClusterName(r.URL.Path)
 	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/"+clusterName)
 	proxy := p.getCurrentClusterConfig(clusterName)
 	if proxy == nil {
@@ -252,14 +261,11 @@ func (p *ClusterConfig) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, errNoImpersonationConfig
 	}
 
-	// Set up impersonation request.
-	rt := transport.NewImpersonatingRoundTripper(*impersonationConf.ImpersonationConfig, p.clientTransport)
-
 	// Log the request
 	logging.LogSuccessfulRequest(req, *impersonationConf.InboundUser, *impersonationConf.ImpersonatedUser)
 
-	// Push request through round trippers to the API server.
-	return rt.RoundTrip(req)
+	// Push request as admin through round trippers to the API server.
+	return p.clientTransport.RoundTrip(req)
 }
 
 func (p *Proxy) reviewToken(rw http.ResponseWriter, req *http.Request) bool {
