@@ -1,0 +1,50 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer:dex
+  clusterName: k8s
+  namespace: dex
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dex-developer
+  clusterName: k8s
+  namespace: dex
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer:dex
+subjects:
+  - kind: Group
+    name: developer             # ref: keycloak group/role name
+    apiGroup: rbac.authorization.k8s.io
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer
+  clusterName: kind
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-developer
+  clusterName: kind
+subjects:
+  - kind: Group
+    name: developer             # ref: keycloak group/role name
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole         
+  name: developer
+  apiGroup: rbac.authorization.k8s.io
