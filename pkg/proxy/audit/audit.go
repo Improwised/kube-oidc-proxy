@@ -75,6 +75,10 @@ func New(opts *options.AuditOptions, externalAddress string, secureServingInfo *
 	serverConfig.EffectiveVersion = version.NewEffectiveVersion("1.0.31")
 	completed := serverConfig.Complete(nil)
 
+	if opts.AuditWebhookServer == "" {
+		return nil, fmt.Errorf("audit webhook server is required")
+	}
+
 	client := resty.New().SetBaseURL(opts.AuditWebhookServer)
 	return &Audit{
 		opts:         opts,
