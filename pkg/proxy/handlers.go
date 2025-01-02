@@ -22,8 +22,10 @@ import (
 
 func (p *Proxy) withHandlers(handler http.Handler) http.Handler {
 	// Set up proxy handlers
+
+	handler = p.auditor.WithCustomAuditLog(handler)
+	// handler = p.auditor.WithRequest(handler)
 	handler = p.WithRBACHandler(handler)
-	handler = p.auditor.WithRequest(handler)
 	handler = p.withImpersonateRequest(handler)
 	handler = p.withAuthenticateRequest(handler)
 

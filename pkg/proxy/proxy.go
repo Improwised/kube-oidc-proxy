@@ -124,6 +124,9 @@ func New(clustersConfig []*ClusterConfig,
 				Claim:  oidcOptions.GroupsClaim,
 				Prefix: &oidcOptions.GroupsPrefix,
 			},
+			UID: apiserver.ClaimOrExpression{
+				Claim: "sub",
+			},
 		},
 	}
 

@@ -1,4 +1,3 @@
-// Copyright Jetstack Ltd. See LICENSE for details.
 package options
 
 import (
@@ -9,6 +8,7 @@ import (
 
 type AuditOptions struct {
 	*apiserveroptions.AuditOptions
+	AuditWebhookServer string
 }
 
 func NewAuditOptions(nfs *cliflag.NamedFlagSets) *AuditOptions {
@@ -21,5 +21,10 @@ func NewAuditOptions(nfs *cliflag.NamedFlagSets) *AuditOptions {
 
 func (a *AuditOptions) AddFlags(fs *pflag.FlagSet) *AuditOptions {
 	a.AuditOptions.AddFlags(fs)
+
+	fs.StringVar(&a.AuditWebhookServer, "audit-webhook-server", a.AuditWebhookServer,
+	 `Specify the server URL for the webhook audit backend (e.g., http://localhost:8080).
+The backend will receive POST requests with a JSON-formatted audit log in the request body.
+The endpoint to be called is <server-url>/api/v1/k8s-audit-log/webhook.`)
 	return a
 }
