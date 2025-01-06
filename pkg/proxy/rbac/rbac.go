@@ -32,7 +32,8 @@ var defalutRole = map[string]v1.PolicyRule{
 }
 
 func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
-
+	// Watch for namespace
+	// if namespace is created then create role and rolebinding
 	watchNamespace, err := cluster.Kubeclient.CoreV1().Namespaces().Watch(context.Background(), apisv1.ListOptions{Watch: true})
 	if err != nil {
 		return err
@@ -76,6 +77,7 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 	go func() {
 		for e := range watchNamespace.ResultChan() {
 			switch e.Type {
+			// If namespace is created then create role and rolebinding 
 			case watch.Added:
 				for role, policy := range defalutRole {
 					// Create Role
@@ -113,7 +115,7 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 						},
 					})
 				}
-
+			// If namespace is deleted then delete role and rolebinding
 			case watch.Deleted:
 				for role := range defalutRole {
 					// Delete Role
