@@ -15,11 +15,16 @@ import (
 
 var defalutRole = map[string]v1.PolicyRule{
 	"devops": {
-		Verbs:     []string{"*"},	
+		Verbs:     []string{"*"},
 		APIGroups: []string{"*"},
 		Resources: []string{"*"},
 	},
 	"developer": {
+		Verbs:     []string{"get", "list", "watch"},
+		APIGroups: []string{"*"},
+		Resources: []string{"pods", "pods/log", "pods/exec"},
+	},
+	"developer-portforward": {
 		Verbs:     []string{"get", "list", "watch"},
 		APIGroups: []string{"*"},
 		Resources: []string{"pods", "pods/log", "pods/exec", "pods/portforward"},
@@ -62,12 +67,12 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 			},
 			Subjects: []v1.Subject{
 				{
-					Kind: 	"Group",
-					Name: 	fmt.Sprintf("%s:%s", cluster.Name, role),
+					Kind:     "Group",
+					Name:     fmt.Sprintf("%s:%s", cluster.Name, role),
 					APIGroup: "rbac.authorization.k8s.io",
 				},
 			},
-			RoleRef:  v1.RoleRef{
+			RoleRef: v1.RoleRef{
 				Kind: "ClusterRole",
 				Name: fmt.Sprintf("%s:%s", cluster.Name, role),
 			},
@@ -77,7 +82,7 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 	go func() {
 		for e := range watchNamespace.ResultChan() {
 			switch e.Type {
-			// If namespace is created then create role and rolebinding 
+			// If namespace is created then create role and rolebinding
 			case watch.Added:
 				for role, policy := range defalutRole {
 					// Create Role
@@ -104,12 +109,12 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 						},
 						Subjects: []v1.Subject{
 							{
-								Kind: 	"Group",
-								Name: 	fmt.Sprintf("%s:%s:%s", cluster.Name, role, e.Object.(*corev1.Namespace).Name),
+								Kind:     "Group",
+								Name:     fmt.Sprintf("%s:%s:%s", cluster.Name, role, e.Object.(*corev1.Namespace).Name),
 								APIGroup: "rbac.authorization.k8s.io",
 							},
 						},
-						RoleRef:  v1.RoleRef{
+						RoleRef: v1.RoleRef{
 							Kind: "Role",
 							Name: fmt.Sprintf("%s:%s:%s", cluster.Name, role, e.Object.(*corev1.Namespace).Name),
 						},
