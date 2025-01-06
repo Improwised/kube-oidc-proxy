@@ -27,6 +27,7 @@ import (
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
@@ -59,6 +60,7 @@ type ClusterConfig struct {
 	Name                  string
 	Path                  string
 	RestConfig            *rest.Config
+	Kubeclient            *kubernetes.Clientset
 	proxyHandler          *httputil.ReverseProxy
 	TokenReviewer         *tokenreview.TokenReview
 	SubjectAccessReviewer *subjectaccessreview.SubjectAccessReview

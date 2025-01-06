@@ -2,6 +2,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -14,11 +15,10 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
 	"github.com/Improwised/kube-oidc-proxy/pkg/probe"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/rbac"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
-
-	rbacvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 func NewRunCommand(stopCh <-chan struct{}) *cobra.Command {
@@ -55,17 +55,27 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				return err
 			}
 
-			// check if the cluster role config file exists
-			if _, err := os.Stat(opts.App.Cluster.RoleConfig); err != nil {
+			// Validate cluster config
+			if err := clusterConfigValidation(clustersConfig); err != nil {
 				return err
 			}
 
-			clustersRoleConfigMap, err := util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
-			if err != nil {
-				return err
+			var clustersRoleConfigMap map[string]util.RBAC
+			if opts.App.Cluster.RoleConfig != "" {
+				// check if the cluster role config file exists
+				if _, err := os.Stat(opts.App.Cluster.RoleConfig); err != nil {
+					return err
+				}
+
+				clustersRoleConfigMap, err = util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
+				if err != nil {
+					return err
+				}
 			}
 
+			isRBACLoded := make(map[string]bool)
 			for _, cluster := range clustersConfig {
+				isRBACLoded[cluster.Name] = false
 				ConfigFlags := &genericclioptions.ConfigFlags{
 					KubeConfig: &cluster.Path,
 				}
@@ -118,11 +128,11 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				}
 
 				subectAccessReviewer, err := subjectaccessreview.New(kubeclient.AuthorizationV1().SubjectAccessReviews())
-				kubeclient.AuthorizationV1().RESTClient()
 				if err != nil {
 					return err
 				}
 
+				cluster.Kubeclient = kubeclient
 				cluster.SubjectAccessReviewer = subectAccessReviewer
 
 			}
@@ -130,8 +140,20 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 			for clusterName, RBACConfig := range clustersRoleConfigMap {
 				for _, cluster := range clustersConfig {
 					if cluster.Name == clusterName {
-						_, StaticRoles := rbacvalidation.NewTestRuleResolver(RBACConfig.Roles, RBACConfig.RoleBindings, RBACConfig.ClusterRoles, RBACConfig.ClusterRoleBindings)
-						cluster.Authorizer = util.NewAuthorizer(StaticRoles)
+						isRBACLoded[cluster.Name] = true
+						err := rbac.LoadRBAC(RBACConfig, cluster)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			for _, cluster := range clustersConfig {
+				if !isRBACLoded[cluster.Name] {
+					err := rbac.LoadRBAC(util.RBAC{}, cluster)
+					if err != nil {
+						return err
 					}
 				}
 			}
@@ -199,4 +221,19 @@ func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
 		})
 	}
 	return clusterList, nil
+}
+
+func clusterConfigValidation(clusterConfig []*proxy.ClusterConfig) error {
+	// check if the cluster name is not empty and unique
+	clusterNames := make(map[string]bool)
+	for _, cluster := range clusterConfig {
+		if cluster.Name == "" {
+			return fmt.Errorf("cluster name is empty")
+		}
+		if _, ok := clusterNames[cluster.Name]; ok {
+			return fmt.Errorf("cluster name %s is repeated", cluster.Name)
+		}
+		clusterNames[cluster.Name] = true
+	}
+	return nil
 }
