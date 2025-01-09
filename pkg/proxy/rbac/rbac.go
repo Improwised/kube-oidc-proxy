@@ -140,8 +140,6 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 				continue
 
 			}
-			fmt.Println(len(RBACConfig.ClusterRoles))
-			fmt.Println(len(RBACConfig.ClusterRoleBindings))
 			_, StaticRoles := rbacvalidation.NewTestRuleResolver(RBACConfig.Roles, RBACConfig.RoleBindings, RBACConfig.ClusterRoles, RBACConfig.ClusterRoleBindings)
 			cluster.Authorizer = util.NewAuthorizer(StaticRoles)
 
