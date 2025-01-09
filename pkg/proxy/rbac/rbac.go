@@ -44,7 +44,7 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 		return err
 	}
 
-	for _, role := range defalutRole {
+	for roleName, role := range defalutRole {
 		// Create ClusterRole
 		RBACConfig.ClusterRoles = append(RBACConfig.ClusterRoles, &v1.ClusterRole{
 			TypeMeta: apisv1.TypeMeta{
@@ -52,7 +52,7 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 				APIVersion: "rbac.authorization.k8s.io/v1",
 			},
 			ObjectMeta: apisv1.ObjectMeta{
-				Name: fmt.Sprintf("%s:%s", cluster.Name, role),
+				Name: fmt.Sprintf("%s:%s", cluster.Name, roleName),
 			},
 			Rules: []v1.PolicyRule{role},
 		})
@@ -63,18 +63,18 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 				APIVersion: "rbac.authorization.k8s.io/v1",
 			},
 			ObjectMeta: apisv1.ObjectMeta{
-				Name: fmt.Sprintf("%s:%s", cluster.Name, role),
+				Name: fmt.Sprintf("%s:%s", cluster.Name, roleName),
 			},
 			Subjects: []v1.Subject{
 				{
 					Kind:     "Group",
-					Name:     fmt.Sprintf("%s:%s", cluster.Name, role),
+					Name:     fmt.Sprintf("%s:%s", cluster.Name, roleName),
 					APIGroup: "rbac.authorization.k8s.io",
 				},
 			},
 			RoleRef: v1.RoleRef{
 				Kind: "ClusterRole",
-				Name: fmt.Sprintf("%s:%s", cluster.Name, role),
+				Name: fmt.Sprintf("%s:%s", cluster.Name, roleName),
 			},
 		})
 	}
@@ -140,6 +140,8 @@ func LoadRBAC(RBACConfig util.RBAC, cluster *proxy.ClusterConfig) error {
 				continue
 
 			}
+			fmt.Println(len(RBACConfig.ClusterRoles))
+			fmt.Println(len(RBACConfig.ClusterRoleBindings))
 			_, StaticRoles := rbacvalidation.NewTestRuleResolver(RBACConfig.Roles, RBACConfig.RoleBindings, RBACConfig.ClusterRoles, RBACConfig.ClusterRoleBindings)
 			cluster.Authorizer = util.NewAuthorizer(StaticRoles)
 
