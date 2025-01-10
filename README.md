@@ -1,170 +1,270 @@
-# kube-oidc-proxy
+# 🚀 kube-oidc-proxy
 
-`kube-oidc-proxy` is a reverse proxy server to authenticate users using OIDC to
-Kubernetes API servers where OIDC authentication is not available (i.e. managed 
-Kubernetes providers such as GKE, EKS, etc).
+## 📖 Table of Contents
 
-This intermediary server takes `kubectl` requests, authenticates the request using
-the configured OIDC Kubernetes authenticator, then attaches impersonation
-headers based on the OIDC response from the configured provider. This
-impersonated request is then sent to the API server on behalf of the user and
-it's response passed back. The server has flag parity with secure serving and
-OIDC authentication that are available with the Kubernetes API server as well as
-client flags provided by kubectl. In-cluster client authentication is also
-available when running `kube-oidc-proxy` as a pod.
+- [✨ Introduction](#-introduction)
+- [📦 Handling kubectl Requests with Multi-Cluster Support](#-handling-kubectl-requests-with-multi-cluster-support)
+- [🔧 Setting Up Multiple Clusters](#-setting-up-multiple-clusters)
+- [🔑 Roles and Permissions](#-roles-and-permissions)
+  - [🛠 Default Roles and Permissions](#-default-roles-and-permissions)
+  - [📂 Namespace-Specific Access](#-namespace-specific-access)
+  - [🌐 Cluster-Wide Access](#-cluster-wide-access)
+  - [⚙️ Custom Roles and Permissions](#-custom-roles-and-permissions)
+- [📜 Logging](#-logging)
+- [🔍 Custom Webhook Auditing](#-custom-webhook-auditing)
+- [🖥 Development](#-development)
 
-Since the proxy server utilises impersonation to forward requests to the API
-server once authenticated, impersonation is disabled for user requests to the
-API server.
+---
 
-![kube-oidc-proxy demo](https://storage.googleapis.com/kube-oidc-proxy/demo-9de755f8e4b4e5dd67d17addf09759860f903098.svg)
+## ✨ Introduction
 
-The following is a diagram of the request flow for a user request.
-![kube-oidc-proxy request
-flow](https://storage.googleapis.com/kube-oidc-proxy/diagram-d9623e38a6cd3b585b45f47d80ca1e1c43c7e695.png)
+`kube-oidc-proxy` is a reverse proxy server designed to authenticate and authorize users for Kubernetes API servers using **Keycloak (OIDC)**. It is ideal for managed Kubernetes platforms like GKE and EKS, where native OIDC support is unavailable. 🌐
 
-## Quickest Start
+### 🎯 Key Features
 
-OpenUnison integrates kube-oidc-proxy directly, and includes an identity provider and access portal for Kubernetes.  The quickest way to get started with kube-oidc-proxy is to follow the directions for OpenUnison's deployment at https://openunison.github.io/.
+1. **Intercept Requests:** Receives `kubectl` requests from users.
+2. **Authentication & Authorization:**
+   - Authenticates requests using OIDC providers (e.g., Keycloak).
+   - Verifies user permissions based on predefined roles.
+3. **Forward Requests:** Sends authorized requests to the Kubernetes API server.
+4. **Respond Back:** Routes Kubernetes API server responses back to users.
 
-## Tutorial
+Check out this [DFD Diagram](https://github.com/Improwised/kube-oidc-proxy/issues/28#issuecomment-2581895267) to visualize the flow! 🔗
 
-Directions on how to deploy OIDC authentication with multi-cluster can be found
-[here.](./demo/README.md) or there is a [helm chart](./deploy/charts/kube-oidc-proxy/README.md).
+---
 
-### Quickstart
+## 📦 Handling kubectl Requests with Multi-Cluster Support
 
-Deployment yamls can be found in `./deploy/yaml` and will require configuration to
-an exiting OIDC issuer.
+To manage requests for multiple clusters, users specify the target cluster in the request URL.
 
-This quickstart demo will assume you have a Kubernetes cluster without OIDC
-authentication, as well as an OIDC client created with your chosen
-provider. We will be using a Service with type `LoadBalancer` to expose it to
-the outside world. This can be changed depending on what is available and what
-suites your set up best.
+### 🛠 Configuring the Cluster Name in the Request URL
 
-Firstly deploy `kube-oidc-proxy` and it's related resources into your cluster.
-This will create it's Deployment, Service Account and required permissions into
-the newly created `kube-oidc-proxy` Namespace.
+Include the cluster name in the kubeconfig file's server URL:
 
-```
-$ kubectl apply -f ./deploy/yaml/kube-oidc-proxy.yaml
-$ kubectl get all --namespace kube-oidc-proxy
-```
-
-This deployment will fail until we create the required secrets. Notice we have
-also not provided any client flags as we are using the in-cluster config with
-it's Service Account.
-
-We now wait until we have an external IP address provisioned.
-
-```
-$ kubectl get service --namespace kube-oidc-proxy
-```
-
-We need to generate certificates for `kube-oidc-proxy` to securely serve.  These
-certificates can be generated through `cert-manager`, more information about
-this project found [here](https://github.com/jetstack/cert-manager).
-
-Next, populate the OIDC authenticator Secret using the secrets given to you
-by your OIDC provider in `./deploy/yaml/secrets.yaml`. The OIDC provider CA will be
-different depending on which provider you are using. The easiest way to obtain
-the correct certificate bundle is often by opening the providers URL into a
-browser and fetching them there (typically output by clicking the lock icon on
-your address bar). Google's OIDC provider for example requires CAs from both
-`https://accounts.google.com/.well-known/openid-configuration` and
-`https://www.googleapis.com/oauth2/v3/certs`.
-
-
-Apply the secret manifests.
-
-```
-kubectl apply -f ./deploy/yaml/secrets.yaml
-```
-
-You can restart the `kube-oidc-proxy` pod to use these new secrets
-now they are available.
-
-```
-kubectl delete pod --namespace kube-oidc-proxy kube-oidc-proxy-*
-```
-
-Finally, create a Kubeconfig to point to `kube-oidc-proxy` and set up your OIDC
-authenticated Kubernetes user.
-
-```
+```yaml
 apiVersion: v1
+kind: Config
 clusters:
 - cluster:
-    certificate-authority: *
-    server: https://[url|ip:443]
-  name: *
-contexts:
-- context:
-    cluster: *
-    user: *
-  name: *
-kind: Config
-preferences: {}
-users:
-- name: *
-  user:
-    auth-provider:
-      config:
-        client-id: *
-        client-secret: *
-        id-token: *
-        idp-issuer-url: *
-        refresh-token: *
-      name: oidc
+    server: https://<proxy-ip>:<proxy-port>/<cluster-name>
 ```
 
-## Configuration
- - [Token Passthrough](./docs/tasks/token-passthrough.md)
- - [No Impersonation](./docs/tasks/no-impersonation.md)
- - [Extra Impersonations Headers](./docs/tasks/extra-impersonation-headers.md)
- - [Auditing](./docs/tasks/auditing.md)
+Replace `<proxy-ip>`, `<proxy-port>`, and `<cluster-name>` with the proxy server's IP address, port, and cluster name.
 
-## Logging
+### 🧩 Example Configuration
 
-In addition to auditing, kube-oidc-proxy logs all requests to standard out so the requests can be captured by a common Security Information and Event Management (SIEM) system.  SIEMs will typically import logs directly from containers via tools like fluentd.  This logging is also useful in debugging.  An example successful event:
+If the proxy runs at `192.168.1.100` on port `8080` and the cluster name is `k8s`, the server URL becomes:
 
-```
-[2021-11-25T01:05:17+0000] AuSuccess src:[10.42.0.5 / 10.42.1.3, 10.42.0.5] URI:/api/v1/namespaces/openunison/pods?limit=500 inbound:[mlbadmin1 / system:masters|system:authenticated /]
+```text
+https://192.168.1.100:8080/k8s
 ```
 
-The first block, between `[]` is an ISO-8601 timestamp.  The next text, `AuSuccess`, indicates that authentication was successful.  the `src` block containers the remote address of the request, followed by the value of the `X-Forwarded-For` HTTP header if provided.  The `URI` is the URL path of the request.  The `inbound` section provides the user name, groups, and extra-info provided to the proxy from the JWT.
+This ensures all `kubectl` requests are routed through the proxy to the appropriate cluster. 🔄
 
-When there's an error or failure:
+---
+
+## 🔧 Setting Up Multiple Clusters
+
+`kube-oidc-proxy` supports multiple clusters, ideal for organizations managing diverse environments. 🌍
+
+### 📝 Configuration Steps
+
+1. **Create a Configuration File:** Define clusters in `config.yaml`:
+
+   ```yaml
+   clusters:
+     - name: k8s
+       kubeconfig: "<path-to-k8s-kubeconfig>"
+     - name: kind
+       kubeconfig: "<path-to-kind-kubeconfig>"
+   ```
+
+2. **Provide Configuration to Proxy:** Use the `--clusters-config` flag:
+
+   ```bash
+   go run cmd/main.go --clusters-config <path-to-config.yaml>
+   ```
+
+The proxy now authenticates and authorizes requests for all configured clusters. ✅
+
+---
+
+## 🔑 Roles and Permissions
+
+The proxy uses roles to define user permissions for each cluster. Roles can be tailored to organizational needs. 🏗️
+
+### 🛠 Default Roles and Permissions
+
+1. **DevOps**
+   ```yaml
+   rules:
+     - apiGroups: ["*"]
+       resources: ["*"]
+       verbs: ["*"]
+   ```
+
+2. **Developer**
+   ```yaml
+   rules:
+     - apiGroups: ["*"]
+       resources: ["pods", "pods/log", "pods/exec"]
+       verbs: ["list", "watch", "get"]
+   ```
+
+3. **Watcher**
+   ```yaml
+   rules:
+     - apiGroups: ["*"]
+       resources: ["*"]
+       verbs: ["list", "watch", "get"]
+   ```
+
+4. **Developer with Port-Forward**
+   ```yaml
+   rules:
+     - apiGroups: ["*"]
+       resources: ["pods", "pods/log", "pods/exec", "pods/portforward"]
+       verbs: ["list", "watch", "get"]
+   ```
+
+### 📂 Namespace-Specific Access
+
+Use the format `<cluster-name>:<role>:<namespace>` for namespace-specific roles. Assign this role to users in Keycloak.
+
+#### Resource Count
+- Roles & RoleBindings: `4 (roles) × n (namespaces)`
+- These are created dynamically within the proxy.
+
+### 🌐 Cluster-Wide Access
+
+Use `<cluster-name>:<role>` to grant cluster-wide roles in Keycloak.
+
+#### Resource Count
+- ClusterRoles & ClusterRoleBindings: 4 (roles)
+- These are created dynamically within the proxy.
+
+### ⚙️ Custom Roles and Permissions
+
+Administrators can define custom roles in `role-config.yaml`:
+
+```bash
+go run cmd/main.go --role-config <path-to-role-config.yaml>
+```
+
+Refer to the role confing file [example](./roleConfig.yaml.example).
+
+---
+
+## 📜 Logging
+
+Logs provide insights for debugging and integration with SIEM systems (e.g., Fluentd). 📊
+
+### Example Logs
+
+- **Successful Request:**
+
+  ```text
+  [2021-11-25T01:05:17+0000] AuSuccess src:[10.42.0.5 / 10.42.1.3] URI:/api/v1/namespaces/openunison/pods?limit=500 inbound:[mlbadmin1 / system:masters|system:authenticated /]
+  ```
+
+- **Failed Request:**
+
+  ```text
+  [2021-11-25T01:05:24+0000] AuFail src:[10.42.0.5 / 10.42.1.3] URI:/api/v1/nodes
+  ```
+
+---
+
+## 🔍 Custom Webhook Auditing
+
+Send audit logs as JSON payloads to a webhook for custom auditing. 🔎
+
+### Example Audit Payload
+
+```go
+type Log struct {
+	ClusterName string `json:"cluster_name"`
+	// user info
+	Email  string              `json:"email"`
+	UID    string              `json:"uid"`
+	Groups []string            `json:"groups"`
+	Extra  map[string][]string `json:"extra"`
+	// request info
+	IsResourceRequest bool     `json:"is_resource_request"`
+	RequestPath       string   `json:"request_path"`
+	Verb              string   `json:"verb"`
+	APIPrefix         string   `json:"api_prefix"`
+	APIGroup          string   `json:"api_group"`
+	APIVersion        string   `json:"api_version"`
+	Namespace         string   `json:"namespace"`
+	Resource          string   `json:"resource"`
+	SubResource       string   `json:"sub_resource"`
+	Name              string   `json:"name"`
+	Parts             []string `json:"parts"`
+	FieldSelector     string   `json:"field_selector"`
+	LabelSelector     string   `json:"label_selector"`
+	// body
+	RequestBody json.RawMessage `json:"request_body"`
+}
+```
+
+### Configuring the Webhook
+
+Use the `--audit-webhook-server` flag:
+
+```bash
+go run cmd/main.go --audit-webhook-server <webhook-url>
+```
+
+Audit logs are sent to:
 
 ```
-[2021-11-25T01:05:24+0000] AuFail src:[10.42.0.5 / 10.42.1.3] URI:/api/v1/nodes
+<webhook-url>/api/v1/k8s-audit-log/webhook
 ```
 
-This is similar to success, but without the token information.
+---
 
-## End-User Impersonation
+## 🖥 Development
 
-kube-oidc-proxy supports the impersonation headers for inbound requests.  This allowes the proxy to support `kubectl --as`.  When impersonation headers are included in a request, the proxy checks that the authenticated user is able to assume the identity of the impersonation headers by submitting `SubjectAccessReview` requests to the API server.  Once authorized, the proxy will send those identity headers instead of headers generated for the authenticated user.  In addition, three `Extra` impersonation headers are sent to the API server to identify the authenticated user who's making the request:
+> **Note:** Requires Go version 1.17 or higher. 🛠️
 
-| Header | Description |
-| ------ | ----------- |
-| `originaluser.jetstack.io-user` | The original username |
-| `originaluser.jetstack.io-groups` | The original groups |
-| `originaluser.jetstack.io-extra` | A JSON encoded map of arrays representing all of the `extra` headers included in the original identity |
+### 📝 Step 1: Keycloak Configuration
 
-In addition to sending this `extra` information, the proxy adds an additional section to the logfile that will identify outbound identity data.  When impersonation headers are present, the `AuSuccess` log will look like:
+1. Create a new [client](https://github.com/Improwised/kube-oidc-proxy/issues/13#issuecomment-2576744735) in Keycloak.
+2. Assign client [scopes and mappers](https://github.com/Improwised/kube-oidc-proxy/issues/13#issuecomment-2579232821) to client.
 
+### ⚙️ Step 2: Build the Binary
+
+```bash
+go build -o ./proxy ./cmd/.
 ```
-[2021-11-25T01:05:17+0000] AuSuccess src:[10.42.0.5 / 10.42.1.3] URI:/api/v1/namespaces/openunison/pods?limit=500 inbound:[mlbadmin1 / system:masters|system:authenticated /] outbound:[mlbadmin2 / group2|system:authenticated /]
+
+### 🚀 Step 3: Run the Proxy
+
+```bash
+./proxy \
+  --clusters-config=<path to>/clusterConfig.yaml \
+  --oidc-issuer-url=https://<server-url>/realms/<realm-name> \
+  --oidc-client-id=<client-id> \
+  --oidc-ca-file=<path to oidc provider CA file> \
+  --oidc-signing-algs=<alg-name> \
+  --tls-cert-file=<path to TLS cert file> \
+  --tls-private-key-file=<path to TLS private key file> \
+  --oidc-groups-claim=groups \
+  --role-config=<path to role-config file>
 ```
 
-When using `Impersonate-Extra-` headers, the proxy's `ServiceAccount` must be explicitly authorized via RBAC to impersonate whatever the extra key is named.  This is because extras are treated as subresources which must be explicitly authorized.  
+### 🛡 Flag Descriptions
 
+- **`--clusters-config`**: Path to the clusters configuration file.
+- **`--oidc-issuer-url`**: OIDC provider URL.
+- **`--oidc-client-id`**: Client ID for authentication.
+- **`--oidc-ca-file`**: CA file path for verifying the OIDC server.
+- **`--oidc-signing-algs`**: Allowed signing algorithms (default: `RS256`).
+- **`--tls-cert-file`**: TLS certificate file path.
+- **`--tls-private-key-file`**: TLS private key file path.
+- **`--oidc-groups-claim`**: Claim to retrieve user groups (default: `groups`).
+- **`--role-config`**: Role configuration file path.
 
-## Development
-*NOTE*: building kube-oidc-proxy requires Go version 1.17 or higher.
+---
 
-To help with development, there is a suite of tools you can use to deploy a
-functioning proxy from source locally. You can read more
-[here](./docs/tasks/development-testing.md).
