@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework"
 )
 
@@ -112,18 +113,27 @@ var _ = framework.CasesDescribe("Impersonation", func() {
 		By("Enabling the disabling of impersonation")
 		f.DeployProxyWith(nil, "--disable-impersonation")
 
-		By("Creating ClusterRole for system:anonymous to impersonate")
+		By("Creating ClusterRole for impersonation")
 		roleImpersonate, err := f.Helper().KubeClient.RbacV1().ClusterRoles().Create(context.TODO(), &rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-user-role-impersonate-",
 			},
 			Rules: []rbacv1.PolicyRule{
-				{APIGroups: []string{""}, Resources: []string{"users"}, Verbs: []string{"impersonate"}},
+				{
+					APIGroups: []string{""},
+					Resources: []string{"users", "groups"},
+					Verbs:     []string{"impersonate"},
+				},
+				{
+					APIGroups: []string{"authentication.k8s.io"},
+					Resources: []string{"userextras/*", "groups"},
+					Verbs:     []string{"impersonate"},
+				},
 			},
 		}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Creating Role for user foo to list Pods")
+		By("Creating Role for user foo@example.com to list Pods")
 		rolePods, err := f.Helper().KubeClient.RbacV1().Roles(f.Namespace.Name).Create(context.TODO(), &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-user-role-pods-",
@@ -134,14 +144,17 @@ var _ = framework.CasesDescribe("Impersonation", func() {
 		}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Creating ClusterRoleBinding for user system:anonymous")
+		By("Creating ClusterRoleBinding for impersonation")
 		rolebindingImpersonate, err := f.Helper().KubeClient.RbacV1().ClusterRoleBindings().Create(context.TODO(),
 			&rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "test-user-binding-system-anonymous",
+					GenerateName: "test-user-binding-impersonate-",
 				},
-				Subjects: []rbacv1.Subject{{Name: "system:anonymous", Kind: "User"}},
-				RoleRef:  rbacv1.RoleRef{Name: roleImpersonate.Name, Kind: "ClusterRole"},
+				Subjects: []rbacv1.Subject{
+					{Name: "user@example.com", Kind: "User"},
+					{Name: "system:anonymous", Kind: "User"},
+				},
+				RoleRef: rbacv1.RoleRef{Name: roleImpersonate.Name, Kind: "ClusterRole"},
 			}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -151,13 +164,19 @@ var _ = framework.CasesDescribe("Impersonation", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "test-user-binding-user-foo-example-com",
 				},
-				Subjects: []rbacv1.Subject{{Name: "foo@example.com", Kind: "User"}},
-				RoleRef:  rbacv1.RoleRef{Name: rolePods.Name, Kind: "Role"},
+				Subjects: []rbacv1.Subject{
+					{Name: "foo@example.com", Kind: "User"},
+					// Add user@example.com to also have direct access
+					{Name: "user@example.com", Kind: "User"},
+				},
+				RoleRef: rbacv1.RoleRef{Name: rolePods.Name, Kind: "Role"},
 			}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
 		// build client with impersonation
 		config := f.NewProxyRestConfig()
+
+		config.Host = fmt.Sprintf("%s/%s", config.Host, constants.ClusterName)
 		config.Impersonate = rest.ImpersonationConfig{
 			UserName: "foo@example.com",
 		}
@@ -191,6 +210,7 @@ func tryImpersonationClient(f *framework.Framework, impConfig rest.Impersonation
 	// build client with impersonation
 	config := f.NewProxyRestConfig()
 	config.Impersonate = impConfig
+	config.Host = fmt.Sprintf("%s/%s", config.Host, constants.ClusterName)
 	client, err := kubernetes.NewForConfig(config)
 	Expect(err).NotTo(HaveOccurred())
 

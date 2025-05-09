@@ -4,6 +4,7 @@ package framework
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -14,10 +15,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework/config"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework/helper"
 	"github.com/Improwised/kube-oidc-proxy/test/kind"
 	"github.com/Improwised/kube-oidc-proxy/test/util"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 )
 
 var DefaultConfig = &config.Config{}
@@ -54,7 +57,6 @@ func NewFramework(baseName string, config *config.Config) *Framework {
 }
 
 func (f *Framework) BeforeEach() {
-	f.helper = helper.NewHelper(f.config)
 
 	By("Creating a kubernetes client")
 
@@ -62,6 +64,12 @@ func (f *Framework) BeforeEach() {
 	clientConfigFlags.KubeConfig = &f.config.KubeConfigPath
 	config, err := clientConfigFlags.ToRESTConfig()
 	Expect(err).NotTo(HaveOccurred())
+
+	f.helper = helper.NewHelper(f.config, config)
+
+	apiExtensionsClient, err := apiextensionsclientset.NewForConfig(config)
+	Expect(err).NotTo(HaveOccurred())
+	f.helper.ApiExtensionsClient = apiExtensionsClient
 
 	f.KubeClientSet, err = kubernetes.NewForConfig(config)
 	Expect(err).NotTo(HaveOccurred())
@@ -76,6 +84,23 @@ func (f *Framework) BeforeEach() {
 
 	By("Deploying mock OIDC Issuer")
 	issuerKeyBundle, issuerURL, err := f.helper.DeployIssuer(f.Namespace.Name)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Deploying Customrole CRD")
+	crdPath := filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiclusterrolebindings.yaml")
+	err = f.Helper().DeployCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiclusterroles.yaml")
+	err = f.Helper().DeployCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capirolebindings.yaml")
+	err = f.Helper().DeployCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiroles.yaml")
+	err = f.Helper().DeployCRDFromFile(crdPath)
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Deploying kube-oidc-proxy")
@@ -100,6 +125,23 @@ func (f *Framework) AfterEach() {
 
 	By("Deleting kube-oidc-proxy deployment")
 	err = f.Helper().DeleteProxy(f.Namespace.Name)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Deleting Customrole CRD")
+	crdPath := filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiclusterrolebindings.yaml")
+	err = f.Helper().DeleteCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiclusterroles.yaml")
+	err = f.Helper().DeleteCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capirolebindings.yaml")
+	err = f.Helper().DeleteCRDFromFile(crdPath)
+	Expect(err).NotTo(HaveOccurred())
+
+	crdPath = filepath.Join(f.Helper().Config().RepoRoot, "deploy/crds/rbac.platformengineers.io_capiroles.yaml")
+	err = f.Helper().DeleteCRDFromFile(crdPath)
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Deleting mock OIDC issuer")
@@ -160,6 +202,7 @@ func (f *Framework) NewProxyRestConfig() *rest.Config {
 func (f *Framework) NewProxyClient() kubernetes.Interface {
 	proxyConfig := f.NewProxyRestConfig()
 
+	proxyConfig.Host = fmt.Sprintf("%s/%s", proxyConfig.Host, constants.ClusterName)
 	proxyClient, err := kubernetes.NewForConfig(proxyConfig)
 	Expect(err).NotTo(HaveOccurred())
 

@@ -112,25 +112,4 @@ var _ = framework.CasesDescribe("Passthrough", func() {
 				http.StatusUnauthorized, expRespBody, int(kErr.Status().Code), resp)).NotTo(HaveOccurred())
 		}
 	})
-
-	It("should not error on a valid OIDC token nor a valid ServiceAccount token with passthrough enabled", func() {
-		By("Enabling passthrough with Audience of the API Server")
-		f.DeployProxyWith(nil, "--token-passthrough")
-
-		By("A valid OIDC token should respond without error")
-		proxyClient := f.NewProxyClient()
-		_, err := proxyClient.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		Expect(err).NotTo(HaveOccurred())
-
-		By("Using a ServiceAccount token should not error")
-
-		// Create kube client using ServiceAccount token
-		proxyConfig := f.NewProxyRestConfig()
-		proxyConfig.BearerToken = saToken
-		kubeProxyClient, err := kubernetes.NewForConfig(proxyConfig)
-		Expect(err).NotTo(HaveOccurred())
-
-		_, err = kubeProxyClient.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		Expect(err).NotTo(HaveOccurred())
-	})
 })

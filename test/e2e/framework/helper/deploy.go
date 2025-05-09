@@ -4,30 +4,126 @@ package helper
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/url"
+	"os"
+	"regexp"
 	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/test/kind"
 	"github.com/Improwised/kube-oidc-proxy/test/util"
 )
 
 func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID string,
 	oidcKeyBundle *util.KeyBundle, extraVolumes []corev1.Volume, extraArgs ...string) (*util.KeyBundle, *url.URL, error) {
+
+	// Add clusters-config and kubeconfig setup
+	kindKubeconfigBytes, err := os.ReadFile(h.cfg.KubeConfigPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read KinD kubeconfig: %v", err)
+	}
+
+	serverRegex := regexp.MustCompile(`server: https://127\.0\.0\.1:\d+`)
+	kindKubeConfig := serverRegex.ReplaceAllString(string(kindKubeconfigBytes),
+		"server: https://kube-oidc-proxy-e2e-control-plane:6443")
+
+	kubeconfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kind-kubeconfig",
+			Namespace: ns.Name,
+		},
+		Data: map[string][]byte{
+			"config": []byte(kindKubeConfig),
+		},
+	}
+	_, err = h.KubeClient.CoreV1().Secrets(ns.Name).Create(context.TODO(), kubeconfigSecret, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	clustersConfigYAML := fmt.Sprintf(`clusters:
+  - name: %s
+    kubeconfig: "/etc/kind-kubeconfig/config"
+`, constants.ClusterName)
+
+	clustersConfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "clusters-config",
+			Namespace: ns.Name,
+		},
+		Data: map[string][]byte{
+			"clusters.yaml": []byte(clustersConfigYAML),
+		},
+	}
+	_, err = h.KubeClient.CoreV1().Secrets(ns.Name).Create(context.TODO(), clustersConfigSecret, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// rbacConfigYAML := generateRBACConfigYAML(ns.Name)
+	rbacConfigYAML := ""
+
+	rbacConfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rbac-config",
+			Namespace: ns.Name,
+		},
+		Data: map[string][]byte{
+			"rbac.yaml": []byte(rbacConfigYAML),
+		},
+	}
+	_, err = h.KubeClient.CoreV1().Secrets(ns.Name).Create(context.TODO(), rbacConfigSecret, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	extraVolumes = append(extraVolumes,
+		corev1.Volume{
+			Name: "kind-kubeconfig",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: "kind-kubeconfig",
+				},
+			},
+		},
+		corev1.Volume{
+			Name: "clusters-config",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: "clusters-config",
+				},
+			},
+		},
+		corev1.Volume{
+			Name: "rbac-config",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: "rbac-config",
+				},
+			},
+		},
+	)
+
 	cnt := corev1.Container{
 		Name:            kind.ProxyImageName,
 		Image:           kind.ProxyImageName,
 		ImagePullPolicy: corev1.PullNever,
+		Command:         []string{"./proxy"},
 		Args: append([]string{
-			"kube-oidc-proxy",
 			"--secure-port=6443",
 			"--tls-cert-file=/tls/cert.pem",
 			"--tls-private-key-file=/tls/key.pem",
@@ -38,6 +134,9 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 			"--oidc-ca-file=/oidc/ca.pem",
 			"--oidc-ca-file=/oidc/ca.pem",
 			"--v=10",
+			"--audit-webhook-server=https://127.0.0.1:8989",
+			"--clusters-config=/etc/clusters-config/clusters.yaml",
+			"--audit-webhook-server=https://127.0.0.1:8989",
 		}, extraArgs...),
 		VolumeMounts: []corev1.VolumeMount{
 			corev1.VolumeMount{
@@ -48,6 +147,21 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 			corev1.VolumeMount{
 				MountPath: "/oidc",
 				Name:      "oidc",
+				ReadOnly:  true,
+			},
+			corev1.VolumeMount{
+				Name:      "kind-kubeconfig",
+				MountPath: "/etc/kind-kubeconfig",
+				ReadOnly:  true,
+			},
+			corev1.VolumeMount{
+				Name:      "clusters-config",
+				MountPath: "/etc/clusters-config",
+				ReadOnly:  true,
+			},
+			corev1.VolumeMount{
+				Name:      "rbac-config",
+				MountPath: "/etc/rbac-config",
 				ReadOnly:  true,
 			},
 		},
@@ -68,6 +182,12 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 			},
 			InitialDelaySeconds: 1,
 			PeriodSeconds:       3,
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "KUBECONFIG",
+				Value: "/etc/kind-kubeconfig/config",
+			},
 		},
 	}
 
@@ -98,12 +218,7 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 		},
 	}
 
-	_, err := h.KubeClient.CoreV1().Secrets(ns.Name).Create(context.TODO(), sec, metav1.CreateOptions{})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	bundle, appURL, err := h.deployApp(ns.Name, kind.ProxyImageName, corev1.ServiceTypeNodePort, cnt, volumes...)
+	_, err = h.KubeClient.CoreV1().Secrets(ns.Name).Create(context.TODO(), sec, metav1.CreateOptions{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -140,6 +255,11 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 				APIGroups: []string{"authorization.k8s.io"},
 				Resources: []string{"subjectaccessreviews"},
 				Verbs:     []string{"create"},
+			},
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"*"},
+				Verbs:     []string{"*"},
 			},
 		},
 	}, metav1.CreateOptions{})
@@ -237,6 +357,11 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 				{Name: kind.ProxyImageName, Namespace: ns.Name, Kind: "ServiceAccount"},
 			},
 		}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bundle, appURL, err := h.deployApp(ns.Name, kind.ProxyImageName, corev1.ServiceTypeNodePort, cnt, volumes...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -534,7 +659,7 @@ func (h *Helper) deployApp(ns, name string, serviceType corev1.ServiceType, cont
 }
 
 func (h *Helper) DeleteProxy(ns string) error {
-	return h.deleteApp(ns, kind.ProxyImageName, "oidc-ca")
+	return h.deleteApp(ns, kind.ProxyImageName, "oidc-ca", "kind-kubeconfig", "clusters-config", "rbac-config")
 }
 func (h *Helper) DeleteIssuer(ns string) error {
 	return h.deleteApp(ns, kind.IssuerImageName)
@@ -572,4 +697,82 @@ func (h *Helper) deleteApp(ns, name string, extraSecrets ...string) error {
 func (h *Helper) appURL(ns, serviceName, port string) (string, string) {
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, ns)
 	return host, fmt.Sprintf("https://%s:%s", host, port)
+}
+
+func (h *Helper) DeployCRDFromFile(filePath string) error {
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read CRD file: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+
+	obj := &v1.CustomResourceDefinition{}
+	_, _, err = decoder.Decode(data, nil, obj)
+	if err != nil {
+		return fmt.Errorf("failed to decode CRD YAML: %v", err)
+	}
+
+	_, err = h.ApiExtensionsClient.ApiextensionsV1().CustomResourceDefinitions().Create(
+		context.TODO(), obj, metav1.CreateOptions{},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Wait for CRD to be established
+	const timeout = 30 * time.Second
+	interval := 1 * time.Second
+	start := time.Now()
+
+	for {
+		crd, err := h.ApiExtensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(
+			context.TODO(), obj.Name, metav1.GetOptions{},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to get CRD: %v", err)
+		}
+
+		for _, cond := range crd.Status.Conditions {
+			if cond.Type == v1.Established && cond.Status == v1.ConditionTrue {
+				return nil
+			}
+		}
+
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timed out waiting for CRD %s to be established", obj.Name)
+		}
+
+		time.Sleep(interval)
+	}
+}
+
+func (h *Helper) DeleteCRDFromFile(filePath string) error {
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read CRD file: %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+
+	crd := &v1.CustomResourceDefinition{}
+	_, _, err = decoder.Decode(data, nil, crd)
+	if err != nil {
+		return fmt.Errorf("failed to decode CRD YAML: %v", err)
+	}
+
+	if crd.Name == "" {
+		return fmt.Errorf("CRD name is empty after decoding")
+	}
+
+	return h.ApiExtensionsClient.ApiextensionsV1().CustomResourceDefinitions().Delete(
+		context.TODO(),
+		crd.Name,
+		metav1.DeleteOptions{},
+	)
 }
