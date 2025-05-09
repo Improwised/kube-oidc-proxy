@@ -62,10 +62,10 @@ func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
 				return
 			}
 		}
-		
+
 		// add request info into context
 		req = req.WithContext(context.WithRequestInfo(req.Context(), reqInfo))
-		
+
 		// validate resource request
 		if reqInfo.IsResourceRequest {
 			authHandler := genericapifilters.WithAuthorization(handler, ClusterConfig.Authorizer, scheme.Codecs)
@@ -73,7 +73,7 @@ func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
 			authHandler.ServeHTTP(rw, req)
 			return
 		}
-	
+
 		// Eg. non resource request
 		// 		/api
 		//		/version etc..

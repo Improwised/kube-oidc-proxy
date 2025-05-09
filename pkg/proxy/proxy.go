@@ -19,6 +19,7 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/logging"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/apis/apiserver"
@@ -67,6 +68,7 @@ type ClusterConfig struct {
 	clientTransport       http.RoundTripper
 	noAuthClientTransport http.RoundTripper
 	Authorizer            *rbac.RBACAuthorizer
+	RBACConfig            *util.RBAC
 }
 
 type errorHandlerFn func(http.ResponseWriter, *http.Request, error)

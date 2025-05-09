@@ -11,10 +11,12 @@ import (
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
 	"github.com/Improwised/kube-oidc-proxy/pkg/probe"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/rbac"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
@@ -88,6 +90,9 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 					return err
 				}
 				cluster.RestConfig = r
+				if cluster.RBACConfig == nil {
+					cluster.RBACConfig = &util.RBAC{}
+				}
 			}
 
 			// Initialise token reviewer if enabled
@@ -141,7 +146,11 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				for _, cluster := range clustersConfig {
 					if cluster.Name == clusterName {
 						isRBACLoded[cluster.Name] = true
-						err := rbac.LoadRBAC(RBACConfig, cluster)
+						cluster.RBACConfig.Roles = append(cluster.RBACConfig.Roles, RBACConfig.Roles...)
+						cluster.RBACConfig.ClusterRoles = append(cluster.RBACConfig.ClusterRoles, RBACConfig.ClusterRoles...)
+						cluster.RBACConfig.ClusterRoleBindings = append(cluster.RBACConfig.ClusterRoleBindings, RBACConfig.ClusterRoleBindings...)
+						cluster.RBACConfig.RoleBindings = append(cluster.RBACConfig.RoleBindings, RBACConfig.RoleBindings...)
+						err := rbac.LoadRBAC(cluster)
 						if err != nil {
 							return err
 						}
@@ -151,11 +160,73 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 
 			for _, cluster := range clustersConfig {
 				if !isRBACLoded[cluster.Name] {
-					err := rbac.LoadRBAC(util.RBAC{}, cluster)
+					err := rbac.LoadRBAC(cluster)
 					if err != nil {
 						return err
 					}
 				}
+			}
+
+			capiRbacWatcher, err := crd.NewCAPIRbacWatcher(clustersConfig)
+			if err != nil {
+				fmt.Println("Error starting CAPI RBAC watcher", err)
+			} else {
+				klog.V(5).Info("Starting CAPI RBAC watcher", capiRbacWatcher)
+				capiRbacWatcher.Start(stopCh)
+
+				existingCAPIRoles := capiRbacWatcher.CAPIRoleInformer.GetStore().List()
+
+				for _, obj := range existingCAPIRoles {
+
+					role, err := crd.ConvertUnstructured[crd.CAPIRole](obj)
+					if err != nil {
+						klog.Errorf("Failed to convert unstructured object to Role: %v", err)
+						continue
+					}
+
+					capiRbacWatcher.ProcessCAPIRole(role)
+				}
+
+				existingCAPIClusterRoles := capiRbacWatcher.CAPIClusterRoleInformer.GetStore().List()
+
+				for _, obj := range existingCAPIClusterRoles {
+
+					clusterRole, err := crd.ConvertUnstructured[crd.CAPIClusterRole](obj)
+					if err != nil {
+						klog.Errorf("Failed to convert unstructured object to ClusterRole: %v", err)
+						continue
+					}
+
+					capiRbacWatcher.ProcessCAPIClusterRole(clusterRole)
+				}
+
+				existingCAPIClusterRoleBindings := capiRbacWatcher.CAPIClusterRoleBindingInformer.GetStore().List()
+
+				for _, obj := range existingCAPIClusterRoleBindings {
+
+					clusterRoleBinding, err := crd.ConvertUnstructured[crd.CAPIClusterRoleBinding](obj)
+					if err != nil {
+						klog.Errorf("Failed to convert unstructured object to ClusterRoleBinding: %v", err)
+						continue
+					}
+
+					capiRbacWatcher.ProcessCAPIClusterRoleBinding(clusterRoleBinding)
+				}
+
+				existingCAPIRoleBindings := capiRbacWatcher.CAPIRoleBindingInformer.GetStore().List()
+
+				for _, obj := range existingCAPIRoleBindings {
+
+					roleBinding, err := crd.ConvertUnstructured[crd.CAPIRoleBinding](obj)
+					if err != nil {
+						klog.Errorf("Failed to convert unstructured object to RoleBinding: %v", err)
+						continue
+					}
+
+					capiRbacWatcher.ProcessCAPIRoleBinding(roleBinding)
+				}
+
+				capiRbacWatcher.RebuildAllAuthorizers()
 			}
 
 			// Initialise proxy with OIDC token authenticator

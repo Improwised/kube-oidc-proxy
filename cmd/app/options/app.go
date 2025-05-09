@@ -33,7 +33,7 @@ type ExtraHeaderOptions struct {
 }
 
 type Cluster struct {
-	Config string
+	Config     string
 	RoleConfig string
 }
 
@@ -92,8 +92,8 @@ func (e *ExtraHeaderOptions) AddFlags(fs *pflag.FlagSet) {
 func (k *Cluster) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&k.Config, "clusters-config", k.Config,
 		"Path to the YAML file containing an array of clusters. Each cluster in the array includes two fields: name and kubeconfig.")
-	
-		fs.StringVar(&k.RoleConfig, "role-config", k.RoleConfig,
+
+	fs.StringVar(&k.RoleConfig, "role-config", k.RoleConfig,
 		`path to the role configuration file which contain role,roleBinding,clusterRole and clusterRoleBinding 
 		with additional field clusterName and The clusterName must match the name specified in the cluster-config file.`)
 }

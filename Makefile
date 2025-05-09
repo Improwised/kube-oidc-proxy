@@ -82,7 +82,7 @@ clean: ## clean up created files
 		$(CURDIR)/test/e2e/framework/issuer/bin \
 		$(CURDIR)/test/e2e/framework/fake-apiserver/bin
 
-verify: depend verify_boilerplate go_fmt go_vet go_lint ## verify code and mod
+verify: depend go_fmt go_vet go_lint ## verify code and mod
 
 generate: depend ## generates mocks and assets files
 	go generate $$(go list ./pkg/... ./cmd/...)

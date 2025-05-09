@@ -13,9 +13,11 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/term v0.25.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 	k8s.io/api v0.32.0
+	k8s.io/apiextensions-apiserver v0.32.0
 	k8s.io/apimachinery v0.32.0
 	k8s.io/apiserver v0.32.0
 	k8s.io/cli-runtime v0.32.0
@@ -27,7 +29,8 @@ require (
 )
 
 require (
-	k8s.io/apiextensions-apiserver v0.32.0 // indirect
+	github.com/jstemmer/go-junit-report v1.0.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	k8s.io/controller-manager v0.32.0 // indirect
 )
 

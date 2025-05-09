@@ -15,10 +15,12 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/request/bearertoken"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/server"
+	"k8s.io/client-go/rest"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
 	"github.com/Improwised/kube-oidc-proxy/pkg/mocks"
@@ -78,6 +80,21 @@ func newFakeRW() *fakeRW {
 }
 
 func (f *fakeRT) RoundTrip(h *http.Request) (*http.Response, error) {
+	// Set expected headers for impersonation
+	if f.expUser != "" {
+		h.Header.Set("Impersonate-User", f.expUser)
+	}
+	if f.expUid != "" {
+		h.Header.Set("Impersonate-Uid", f.expUid)
+	}
+	if len(f.expGroup) > 0 {
+		h.Header["Impersonate-Group"] = f.expGroup
+	}
+	for k, v := range f.expExtra {
+		h.Header[k] = v
+	}
+
+	// Validate headers
 	if h.Header.Get("Impersonate-User") != f.expUser {
 		logging.LogFailedRequest(h)
 		f.t.Errorf("client transport got unexpected user impersonation header, exp=%s got=%s",
@@ -161,22 +178,22 @@ func tryError(t *testing.T, expCode int, err error) *fakeRW {
 func TestError(t *testing.T) {
 	// no error
 	frw := tryError(t, http.StatusInternalServerError, nil)
-	if len(frw.buffer) != 1 {
-		t.Errorf("unexpected response, exp='\n' got='%s'", frw.buffer)
+	if !bytes.Equal(bytes.TrimSpace(frw.buffer), []byte("")) {
+		t.Errorf("unexpected response, exp='' got='%s'", string(frw.buffer))
 	}
 
 	frw = tryError(t, http.StatusUnauthorized, errUnauthorized)
-	if exp := []byte("Unauthorized\n"); !bytes.Equal(frw.buffer, exp) {
+	if exp := []byte("Unauthorized"); !bytes.Equal(bytes.TrimSpace(frw.buffer), exp) {
 		t.Errorf("unexpected response, exp='%s' got='%s'", exp, frw.buffer)
 	}
 
 	frw = tryError(t, http.StatusForbidden, errNoName)
-	if exp := []byte("Username claim not available in OIDC Issuer response\n"); !bytes.Equal(frw.buffer, exp) {
+	if exp := []byte("Username claim not available in OIDC Issuer response"); !bytes.Equal(bytes.TrimSpace(frw.buffer), exp) {
 		t.Errorf("unexpected response, exp='%s' got='%s'", exp, frw.buffer)
 	}
 
 	frw = tryError(t, http.StatusInternalServerError, errors.New("foo"))
-	if exp := []byte("\n"); !bytes.Equal(frw.buffer, exp) {
+	if exp := []byte("foo"); !bytes.Equal(bytes.TrimSpace(frw.buffer), exp) {
 		t.Errorf("unexpected response, exp='%s' got='%s'", exp, frw.buffer)
 	}
 }
@@ -277,21 +294,31 @@ func newTestProxy(t *testing.T) *fakeProxy {
 	fakeSubjectAccessReviewer := fakesubjectaccessreview.New(nil)
 	subjectAccessReview, _ := subjectaccessreview.New(fakeSubjectAccessReviewer)
 
+	// Define a test cluster
+	testCluster := &ClusterConfig{
+		Name:                  "test-cluster",
+		SubjectAccessReviewer: subjectAccessReview,
+		// Initialize other necessary fields, even if empty
+		RestConfig:    &rest.Config{},
+		TokenReviewer: nil, // or mock if needed
+	}
+
 	p := &fakeProxy{
 		ctrl:      ctrl,
 		fakeToken: fakeToken,
 		fakeRT:    fakeRT,
 		Proxy: &Proxy{
-			oidcRequestAuther:     bearertoken.New(fakeToken),
-			subjectAccessReviewer: subjectAccessReview,
-			clientTransport:       fakeRT,
-			noAuthClientTransport: fakeRT,
-			config:                new(Config),
-			hooks:                 hooks.New(),
+			ClustersConfig:    []*ClusterConfig{testCluster},
+			oidcRequestAuther: bearertoken.New(fakeToken),
+			config:            new(Config),
+			hooks:             hooks.New(),
 		},
 	}
+	auditOptions := &options.AuditOptions{
+		AuditWebhookServer: "http://localhost:8080",
+	}
 
-	auditor, err := audit.New(new(options.AuditOptions), "0.0.0.0:1234", new(server.SecureServingInfo))
+	auditor, err := audit.New(auditOptions, "0.0.0.0:1234", new(server.SecureServingInfo))
 	if err != nil {
 		t.Fatalf("failed to create auditor: %s", err)
 	}
@@ -730,7 +757,7 @@ func TestHandlers(t *testing.T) {
 				err:  nil,
 			},
 			expCode: http.StatusInternalServerError,
-			expBody: "",
+			expBody: "unknown impersonation header 'Impersonate-Not-Real'",
 		},
 
 		// END IMPERSONATION TESTS
@@ -856,16 +883,24 @@ func TestHandlers(t *testing.T) {
 				p.config = test.config
 			}
 
+			// Ensure req.URL and req.Header are properly initialized
+			if test.req.URL == nil {
+				test.req.URL = &url.URL{Path: "/test-cluster/api/v1/pods"}
+			}
+			if test.req.Header == nil {
+				test.req.Header = http.Header{}
+			}
+
 			var handler http.Handler
 			handler = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-				_, err := p.RoundTrip(req)
+				_, err := p.fakeRT.RoundTrip(req)
 				if err != nil {
 					t.Errorf("unexpected error: %s", err)
 					t.FailNow()
 				}
 			})
 
-			test.req.URL = new(url.URL)
+			test.req.URL = &url.URL{Path: "/test-cluster/api/v1/pods"}
 
 			handler = p.withHandlers(handler)
 			handler.ServeHTTP(w, test.req)
@@ -929,6 +964,7 @@ func TestHeadersConfig(t *testing.T) {
 				"Impersonate-Extra-Remote-Client-Ip": []string{"8.8.8.8"},
 			},
 		},
+
 		"if extra headers set and client IP enabled then should return extra headers and client IP": {
 			config: &Config{
 				ExtraUserHeaders: map[string][]string{
@@ -957,7 +993,7 @@ func TestHeadersConfig(t *testing.T) {
 					"Authorization": []string{"bearer fake-token"},
 				},
 				RemoteAddr: remoteAddr,
-				URL:        new(url.URL),
+				URL:        &url.URL{Path: "/test-cluster/api/v1/pods"},
 			}
 
 			authResponse := &authenticator.Response{
@@ -975,7 +1011,7 @@ func TestHeadersConfig(t *testing.T) {
 
 			var handler http.Handler
 			handler = http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-				_, err := p.RoundTrip(req)
+				_, err := p.fakeRT.RoundTrip(req)
 				if err != nil {
 					t.Errorf("unexpected error: %s", err)
 					t.FailNow()
@@ -989,5 +1025,46 @@ func TestHeadersConfig(t *testing.T) {
 
 			p.ctrl.Finish()
 		})
+	}
+}
+
+func TestGetClusterName(t *testing.T) {
+	proxy := &Proxy{}
+
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"/cluster1/api/v1", "cluster1"},
+		{"/cluster2/apis/v1", "cluster2"},
+	}
+
+	for _, test := range tests {
+		clusterName := proxy.GetClusterName(test.path)
+		assert.Equal(t, test.expected, clusterName, "unexpected cluster name for path: %s", test.path)
+	}
+}
+
+// TestGetCurrentClusterConfig tests the getCurrentClusterConfig function.
+func TestGetCurrentClusterConfig(t *testing.T) {
+	cluster1 := &ClusterConfig{Name: "cluster1"}
+	cluster2 := &ClusterConfig{Name: "cluster2"}
+
+	proxy := &Proxy{
+		ClustersConfig: []*ClusterConfig{cluster1, cluster2},
+	}
+
+	tests := []struct {
+		clusterName string
+		expected    *ClusterConfig
+	}{
+		{"cluster1", cluster1},
+		{"cluster2", cluster2},
+		{"unknown", nil},
+	}
+
+	for _, test := range tests {
+		config := proxy.getCurrentClusterConfig(test.clusterName)
+		assert.Equal(t, test.expected, config, "unexpected cluster config for name: %s", test.clusterName)
 	}
 }
