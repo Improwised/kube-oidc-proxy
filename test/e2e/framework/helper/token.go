@@ -71,6 +71,7 @@ func (h *Helper) NewTokenPayload(issuerURL *url.URL, clientID string, exp time.T
 	"iss":"%s",
 	"aud":["%s","aud-2"],
 	"email":"user@example.com",
+	"sub":"user-123",
 	"groups":["group-1","group-2"],
 	"exp":%d
 	}`, issuerURL, clientID, exp.Unix()))

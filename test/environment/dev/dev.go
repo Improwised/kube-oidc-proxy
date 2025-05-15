@@ -76,12 +76,12 @@ func deploy() {
 	err = cfg.Validate()
 	errExit(err)
 
-	helper := helper.NewHelper(cfg)
-
 	clientConfigFlags := genericclioptions.NewConfigFlags(true)
 	clientConfigFlags.KubeConfig = &kubeconfig
 	config, err := clientConfigFlags.ToRESTConfig()
 	errExit(err)
+
+	helper := helper.NewHelper(cfg, config)
 
 	kubeClient, err := kubernetes.NewForConfig(config)
 	errExit(err)

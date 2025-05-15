@@ -26,6 +26,7 @@ import (
 	// required to register oidc auth plugin for rest client
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework"
 )
@@ -264,7 +265,7 @@ func newRestConfig(f *framework.Framework) *rest.Config {
 	Expect(err).NotTo(HaveOccurred())
 
 	return &rest.Config{
-		Host: f.ProxyURL().Host,
+		Host: fmt.Sprintf("https://%s/%s", f.ProxyURL().Host, constants.ClusterName),
 		AuthProvider: &clientcmdapi.AuthProviderConfig{
 			Name: "oidc",
 			Config: map[string]string{

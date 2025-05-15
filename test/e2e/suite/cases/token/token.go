@@ -15,6 +15,7 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework"
 )
 
@@ -61,7 +62,7 @@ func expectProxyUnauthorized(f *framework.Framework, tokenPayload []byte) {
 
 	proxyConfig := f.NewProxyRestConfig()
 	requester := f.Helper().NewRequester(proxyConfig.Transport, signedToken)
-
+	proxyConfig.Host = fmt.Sprintf("%s/%s", proxyConfig.Host, constants.ClusterName)
 	// Send request with signed token to proxy
 	target := fmt.Sprintf("%s/api/v1/namespaces/%s/pods",
 		proxyConfig.Host, f.Namespace.Name)
