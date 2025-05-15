@@ -132,7 +132,17 @@ func TestDetermineTargetClusters(t *testing.T) {
 
 	t.Run("empty clusters", func(t *testing.T) {
 		targets := determineTargetClusters(nil, testClusters)
+		assert.Empty(t, targets)
+	})
+
+	t.Run("wildcard expansion", func(t *testing.T) {
+		targets := determineTargetClusters([]string{"*"}, testClusters)
 		assert.ElementsMatch(t, []string{"cluster1", "cluster2"}, targets)
+	})
+
+	t.Run("wildcard with duplicates", func(t *testing.T) {
+		targets := determineTargetClusters([]string{"*", "cluster1"}, testClusters)
+		assert.ElementsMatch(t, []string{"*", "cluster1"}, targets)
 	})
 }
 

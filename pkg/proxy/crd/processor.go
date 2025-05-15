@@ -29,7 +29,7 @@ func ConvertUnstructured[T any](obj interface{}) (*T, error) {
 }
 
 func determineTargetClusters(targetClusters []string, clusters []*proxy.ClusterConfig) []string {
-	if len(targetClusters) == 0 {
+	if len(targetClusters) == 1 && targetClusters[0] == "*" {
 		return getAllClusterNames(clusters)
 	}
 	return targetClusters
@@ -162,6 +162,10 @@ func createRoleBinding(roleBinding *CAPIRoleBinding, namespace string) []*v1.Rol
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIRole(capiRole *CAPIRole) {
 	targetClusters := determineTargetClusters(capiRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
+	if len(targetClusters) < 1 {
+		klog.Warning("skipping role ", capiRole.Name, " because it doesn't contain target clusters")
+		return
+	}
 
 	for _, namespace := range capiRole.Spec.TargetNamespaces {
 		role := createRole(capiRole, namespace)
@@ -175,6 +179,10 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIRole(capiRole *CAPIRole) {
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPIClusterRole) {
 	targetClusters := determineTargetClusters(capiClusterRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
+	if len(targetClusters) < 1 {
+		klog.Warning("skipping cluster role ", capiClusterRole.Name, " because it doesn't contain target clusters")
+		return
+	}
 
 	clusterRole := createClusterRole(capiClusterRole)
 	applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
@@ -183,8 +191,11 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPICluster
 }
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBinding *CAPIClusterRoleBinding) {
-
 	targetClusters := determineTargetClusters(capiClusterRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
+	if len(targetClusters) < 1 {
+		klog.Warning("skipping cluster role binding ", capiClusterRoleBinding.Name, " because it doesn't contain target clusters")
+		return
+	}
 
 	clusterRoleBinding := createClusterRoleBinding(capiClusterRoleBinding)
 
@@ -196,6 +207,10 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBindin
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIRoleBinding(capiRoleBinding *CAPIRoleBinding) {
 	targetClusters := determineTargetClusters(capiRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
+	if len(targetClusters) < 1 {
+		klog.Warning("skipping role binding ", capiRoleBinding.Name, " because it doesn't contain target clusters")
+		return
+	}
 
 	for _, namespace := range capiRoleBinding.Spec.TargetNamespaces {
 		roleBindings := createRoleBinding(capiRoleBinding, namespace)
