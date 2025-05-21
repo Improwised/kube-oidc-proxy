@@ -89,18 +89,20 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				if err != nil {
 					return err
 				}
+
+				// Set client throttling settings for Kubernetes clients.
 				if opts.Client.KubeClientBurst > 0 {
-					restConfig.Burst = opts.Client.KubeClientBurst
+					r.Burst = opts.Client.KubeClientBurst
 				}
 				if opts.Client.KubeClientQPS > 0 {
-					restConfig.QPS = opts.Client.KubeClientQPS
+					r.QPS = opts.Client.KubeClientQPS
 				}
+
 				cluster.RestConfig = r
 				if cluster.RBACConfig == nil {
 					cluster.RBACConfig = &util.RBAC{}
 				}
-			// Set client throttling settings for Kubernetes clients.
-			
+			}
 
 			// Initialise token reviewer if enabled
 			var tokenReviewer *tokenreview.TokenReview
