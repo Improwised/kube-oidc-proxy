@@ -14,6 +14,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubeapiserver/admission/exclusion"
 
+	"github.com/Improwised/kube-oidc-proxy/pkg/models"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/audit"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/context"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/logging"
@@ -39,7 +40,7 @@ func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 
 		clusterName := p.GetClusterName(req.URL.Path)
-		ClusterConfig := p.getCurrentClusterConfig(clusterName)
+		ClusterConfig := p.clusterManager.GetCluster(clusterName)
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/"+clusterName)
 
 		reqInfo, err := p.requestInfo.NewRequestInfo(req)
@@ -174,7 +175,7 @@ func (p *Proxy) withImpersonateRequest(handler http.Handler) http.Handler {
 		if p.hasImpersonation(req.Header) {
 			// if impersonation headers are present, let's check to see
 			// if the user is authorized to perform the impersonation
-			target, err := p.getCurrentClusterConfig(p.GetClusterName(req.URL.Path)).SubjectAccessReviewer.CheckAuthorizedForImpersonation(req, user)
+			target, err := p.clusterManager.GetCluster(p.GetClusterName(req.URL.Path)).SubjectAccessReviewer.CheckAuthorizedForImpersonation(req, user)
 
 			if err != nil {
 				p.handleError(rw, req, err)
@@ -305,7 +306,7 @@ func (p *Proxy) newErrorHandler() func(rw http.ResponseWriter, r *http.Request, 
 			return
 
 			// No impersonation configuration found in context
-		case errNoImpersonationConfig:
+		case models.ErrNoImpersonationConfig:
 			klog.Errorf("if you are seeing this, there is likely a bug in the proxy (%s): %s", r.RemoteAddr, err)
 			http.Error(rw, "", http.StatusInternalServerError)
 			return

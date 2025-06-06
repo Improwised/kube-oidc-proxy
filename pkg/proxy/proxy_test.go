@@ -23,12 +23,15 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
+	"github.com/Improwised/kube-oidc-proxy/pkg/clustermanager"
 	"github.com/Improwised/kube-oidc-proxy/pkg/mocks"
+	"github.com/Improwised/kube-oidc-proxy/pkg/models"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/audit"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/hooks"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/logging"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	fakesubjectaccessreview "github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview/fake"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 )
 
 type fakeProxy struct {
@@ -295,20 +298,23 @@ func newTestProxy(t *testing.T) *fakeProxy {
 	subjectAccessReview, _ := subjectaccessreview.New(fakeSubjectAccessReviewer)
 
 	// Define a test cluster
-	testCluster := &ClusterConfig{
+	testCluster := &models.Cluster{
 		Name:                  "test-cluster",
 		SubjectAccessReviewer: subjectAccessReview,
-		// Initialize other necessary fields, even if empty
-		RestConfig:    &rest.Config{},
-		TokenReviewer: nil, // or mock if needed
+		RestConfig:            &rest.Config{},
+		RBACConfig:            &util.RBAC{},
 	}
+
+	clustermanager, err := clustermanager.NewClusterManager(make(<-chan struct{}), false, nil, nil, nil)
+	assert.Nil(t, err, "error should be nil")
+	clustermanager.AddOrUpdateCluster(testCluster)
 
 	p := &fakeProxy{
 		ctrl:      ctrl,
 		fakeToken: fakeToken,
 		fakeRT:    fakeRT,
 		Proxy: &Proxy{
-			ClustersConfig:    []*ClusterConfig{testCluster},
+			clusterManager:    clustermanager,
 			oidcRequestAuther: bearertoken.New(fakeToken),
 			config:            new(Config),
 			hooks:             hooks.New(),
@@ -1042,29 +1048,5 @@ func TestGetClusterName(t *testing.T) {
 	for _, test := range tests {
 		clusterName := proxy.GetClusterName(test.path)
 		assert.Equal(t, test.expected, clusterName, "unexpected cluster name for path: %s", test.path)
-	}
-}
-
-// TestGetCurrentClusterConfig tests the getCurrentClusterConfig function.
-func TestGetCurrentClusterConfig(t *testing.T) {
-	cluster1 := &ClusterConfig{Name: "cluster1"}
-	cluster2 := &ClusterConfig{Name: "cluster2"}
-
-	proxy := &Proxy{
-		ClustersConfig: []*ClusterConfig{cluster1, cluster2},
-	}
-
-	tests := []struct {
-		clusterName string
-		expected    *ClusterConfig
-	}{
-		{"cluster1", cluster1},
-		{"cluster2", cluster2},
-		{"unknown", nil},
-	}
-
-	for _, test := range tests {
-		config := proxy.getCurrentClusterConfig(test.clusterName)
-		assert.Equal(t, test.expected, config, "unexpected cluster config for name: %s", test.clusterName)
 	}
 }

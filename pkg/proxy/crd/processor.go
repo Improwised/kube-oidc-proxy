@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/models"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,14 +28,14 @@ func ConvertUnstructured[T any](obj interface{}) (*T, error) {
 	return &result, nil
 }
 
-func determineTargetClusters(targetClusters []string, clusters []*proxy.ClusterConfig) []string {
+func determineTargetClusters(targetClusters []string, clusters []*models.Cluster) []string {
 	if len(targetClusters) == 1 && targetClusters[0] == "*" {
 		return getAllClusterNames(clusters)
 	}
 	return targetClusters
 }
 
-func getAllClusterNames(clusters []*proxy.ClusterConfig) []string {
+func getAllClusterNames(clusters []*models.Cluster) []string {
 	names := make([]string, 0, len(clusters))
 	for _, c := range clusters {
 		names = append(names, c.Name)
@@ -43,7 +43,7 @@ func getAllClusterNames(clusters []*proxy.ClusterConfig) []string {
 	return names
 }
 
-func applyToClusters(targetClusters []string, allClusters []*proxy.ClusterConfig, applyFunc func(*proxy.ClusterConfig)) {
+func applyToClusters(targetClusters []string, allClusters []*models.Cluster, applyFunc func(*models.Cluster)) {
 	for _, clusterName := range targetClusters {
 		for _, c := range allClusters {
 			if c.Name == clusterName {
@@ -170,7 +170,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIRole(capiRole *CAPIRole) {
 	for _, namespace := range capiRole.Spec.TargetNamespaces {
 		role := createRole(capiRole, namespace)
 
-		applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+		applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 			c.RBACConfig.Roles = append(c.RBACConfig.Roles, role)
 		})
 	}
@@ -185,7 +185,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPICluster
 	}
 
 	clusterRole := createClusterRole(capiClusterRole)
-	applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+	applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 		c.RBACConfig.ClusterRoles = append(c.RBACConfig.ClusterRoles, clusterRole)
 	})
 }
@@ -199,7 +199,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBindin
 
 	clusterRoleBinding := createClusterRoleBinding(capiClusterRoleBinding)
 
-	applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+	applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 		c.RBACConfig.ClusterRoleBindings = append(c.RBACConfig.ClusterRoleBindings, clusterRoleBinding...)
 	})
 
@@ -215,7 +215,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIRoleBinding(capiRoleBinding *CAPIRoleBin
 	for _, namespace := range capiRoleBinding.Spec.TargetNamespaces {
 		roleBindings := createRoleBinding(capiRoleBinding, namespace)
 
-		applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+		applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 			c.RBACConfig.RoleBindings = append(c.RBACConfig.RoleBindings, roleBindings...)
 		})
 	}
@@ -224,7 +224,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIRoleBinding(capiRoleBinding *CAPIRoleBin
 func (ctrl *CAPIRbacWatcher) DeleteCAPIRole(capiRole *CAPIRole) {
 	targetClusters := determineTargetClusters(capiRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
 	for _, namespace := range capiRole.Spec.TargetNamespaces {
-		applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+		applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 			var newRoles []*v1.Role
 			for _, role := range c.RBACConfig.Roles {
 				if role.Annotations[fmt.Sprintf("%s/managed-by", constants.Group)] == capiRole.Name && role.Namespace == namespace {
@@ -239,7 +239,7 @@ func (ctrl *CAPIRbacWatcher) DeleteCAPIRole(capiRole *CAPIRole) {
 
 func (ctrl *CAPIRbacWatcher) DeleteCAPIClusterRole(capiClusterRole *CAPIClusterRole) {
 	targetClusters := determineTargetClusters(capiClusterRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
-	applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+	applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 		var newClusterRoles []*v1.ClusterRole
 		for _, cr := range c.RBACConfig.ClusterRoles {
 			if cr.Annotations[fmt.Sprintf("%s/managed-by", constants.Group)] == capiClusterRole.Name {
@@ -254,7 +254,7 @@ func (ctrl *CAPIRbacWatcher) DeleteCAPIClusterRole(capiClusterRole *CAPIClusterR
 func (ctrl *CAPIRbacWatcher) DeleteCAPIRoleBinding(capiRoleBinding *CAPIRoleBinding) {
 	targetClusters := determineTargetClusters(capiRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
 	for _, namespace := range capiRoleBinding.Spec.TargetNamespaces {
-		applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+		applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 			var newRoleBindings []*v1.RoleBinding
 			for _, rb := range c.RBACConfig.RoleBindings {
 				if rb.Annotations[fmt.Sprintf("%s/managed-by", constants.Group)] == capiRoleBinding.Name && rb.Namespace == namespace {
@@ -269,7 +269,7 @@ func (ctrl *CAPIRbacWatcher) DeleteCAPIRoleBinding(capiRoleBinding *CAPIRoleBind
 
 func (ctrl *CAPIRbacWatcher) DeleteCAPIClusterRoleBinding(capiClusterRoleBinding *CAPIClusterRoleBinding) {
 	targetClusters := determineTargetClusters(capiClusterRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
-	applyToClusters(targetClusters, ctrl.clusters, func(c *proxy.ClusterConfig) {
+	applyToClusters(targetClusters, ctrl.clusters, func(c *models.Cluster) {
 		var newClusterRoleBindings []*v1.ClusterRoleBinding
 		for _, crb := range c.RBACConfig.ClusterRoleBindings {
 			if crb.Annotations[fmt.Sprintf("%s/managed-by", constants.Group)] == capiClusterRoleBinding.Name {
@@ -279,6 +279,55 @@ func (ctrl *CAPIRbacWatcher) DeleteCAPIClusterRoleBinding(capiClusterRoleBinding
 		}
 		c.RBACConfig.ClusterRoleBindings = newClusterRoleBindings
 	})
+}
+
+func (ctrl CAPIRbacWatcher) ProcessExistingRBACObjects() {
+	// Process existing CAPIRoles
+	existingCAPIRoles := ctrl.CAPIRoleInformer.GetStore().List()
+	for _, obj := range existingCAPIRoles {
+		role, err := ConvertUnstructured[CAPIRole](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIRole: %v", err)
+			continue
+		}
+		ctrl.ProcessCAPIRole(role)
+	}
+
+	// Process existing CAPIRoleBindings
+	existingCAPIRoleBindings := ctrl.CAPIRoleBindingInformer.GetStore().List()
+	for _, obj := range existingCAPIRoleBindings {
+		roleBinding, err := ConvertUnstructured[CAPIRoleBinding](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIRoleBinding: %v", err)
+			continue
+		}
+		ctrl.ProcessCAPIRoleBinding(roleBinding)
+	}
+
+	// Process existing CAPIClusterRoles
+	existingCAPIClusterRoles := ctrl.CAPIClusterRoleInformer.GetStore().List()
+	for _, obj := range existingCAPIClusterRoles {
+		clusterRole, err := ConvertUnstructured[CAPIClusterRole](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIClusterRole: %v", err)
+			continue
+		}
+		ctrl.ProcessCAPIClusterRole(clusterRole)
+	}
+
+	// Process existing CAPIClusterRoleBindings
+	existingCAPIClusterRoleBindings := ctrl.CAPIClusterRoleBindingInformer.GetStore().List()
+	for _, obj := range existingCAPIClusterRoleBindings {
+		clusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIClusterRoleBinding: %v", err)
+			continue
+		}
+		ctrl.ProcessCAPIClusterRoleBinding(clusterRoleBinding)
+	}
+
+	// Rebuild authorizers for all clusters
+	ctrl.RebuildAllAuthorizers()
 }
 
 // rebuildAllAuthorizers updates RBAC authorizers for all clusters.

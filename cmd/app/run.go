@@ -10,16 +10,14 @@ import (
 	"gopkg.in/yaml.v3"
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
+	"github.com/Improwised/kube-oidc-proxy/pkg/clustermanager"
+	"github.com/Improwised/kube-oidc-proxy/pkg/models"
 	"github.com/Improwised/kube-oidc-proxy/pkg/probe"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/rbac"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 )
 
@@ -75,9 +73,19 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				}
 			}
 
-			isRBACLoded := make(map[string]bool)
+			capiRbacWatcher, err := crd.NewCAPIRbacWatcher(clustersConfig)
+			if err != nil {
+				klog.Errorf("Error starting CAPI RBAC watcher %v", err)
+				capiRbacWatcher = nil
+			}
+
+			clusterManager, err := clustermanager.NewClusterManager(stopCh, opts.App.TokenPassthrough.Enabled, opts.App.TokenPassthrough.Audiences, clustersRoleConfigMap, capiRbacWatcher)
+			if err != nil {
+				return err
+			}
+
 			for _, cluster := range clustersConfig {
-				isRBACLoded[cluster.Name] = false
+
 				ConfigFlags := &genericclioptions.ConfigFlags{
 					KubeConfig: &cluster.Path,
 				}
@@ -90,22 +98,20 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 					return err
 				}
 				cluster.RestConfig = r
-				if cluster.RBACConfig == nil {
-					cluster.RBACConfig = &util.RBAC{}
+
+				err = clusterManager.ClusterSetup(cluster)
+				if err != nil {
+					return err
 				}
+				cluster.IsStatic = true
+				clusterManager.AddOrUpdateCluster(cluster)
+
 			}
 
-			// Initialise token reviewer if enabled
-			var tokenReviewer *tokenreview.TokenReview
-			if opts.App.TokenPassthrough.Enabled {
-
-				for _, cluster := range clustersConfig {
-					tokenReviewer, err = tokenreview.New(cluster.RestConfig, opts.App.TokenPassthrough.Audiences)
-					if err != nil {
-						return err
-					}
-					cluster.TokenReviewer = tokenReviewer
-				}
+			if capiRbacWatcher != nil {
+				klog.V(5).Info("Starting CAPI RBAC watcher", capiRbacWatcher)
+				capiRbacWatcher.Start(stopCh)
+				capiRbacWatcher.ProcessExistingRBACObjects()
 			}
 
 			// Initialise Secure Serving Config
@@ -125,116 +131,17 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				ExtraUserHeadersClientIPEnabled: opts.App.ExtraHeaderOptions.EnableClientIPExtraUserHeader,
 			}
 
-			// Setup Subject Access Review for each cluster
-			for _, cluster := range clustersConfig {
-				kubeclient, err := kubernetes.NewForConfig(cluster.RestConfig)
-				if err != nil {
-					return err
-				}
-
-				subectAccessReviewer, err := subjectaccessreview.New(kubeclient.AuthorizationV1().SubjectAccessReviews())
-				if err != nil {
-					return err
-				}
-
-				cluster.Kubeclient = kubeclient
-				cluster.SubjectAccessReviewer = subectAccessReviewer
-
-			}
-
-			for clusterName, RBACConfig := range clustersRoleConfigMap {
-				for _, cluster := range clustersConfig {
-					if cluster.Name == clusterName {
-						isRBACLoded[cluster.Name] = true
-						cluster.RBACConfig.Roles = append(cluster.RBACConfig.Roles, RBACConfig.Roles...)
-						cluster.RBACConfig.ClusterRoles = append(cluster.RBACConfig.ClusterRoles, RBACConfig.ClusterRoles...)
-						cluster.RBACConfig.ClusterRoleBindings = append(cluster.RBACConfig.ClusterRoleBindings, RBACConfig.ClusterRoleBindings...)
-						cluster.RBACConfig.RoleBindings = append(cluster.RBACConfig.RoleBindings, RBACConfig.RoleBindings...)
-						err := rbac.LoadRBAC(cluster)
-						if err != nil {
-							return err
-						}
-					}
-				}
-			}
-
-			for _, cluster := range clustersConfig {
-				if !isRBACLoded[cluster.Name] {
-					err := rbac.LoadRBAC(cluster)
-					if err != nil {
-						return err
-					}
-				}
-			}
-
-			capiRbacWatcher, err := crd.NewCAPIRbacWatcher(clustersConfig)
-			if err != nil {
-				fmt.Println("Error starting CAPI RBAC watcher", err)
-			} else {
-				klog.V(5).Info("Starting CAPI RBAC watcher", capiRbacWatcher)
-				capiRbacWatcher.Start(stopCh)
-
-				existingCAPIRoles := capiRbacWatcher.CAPIRoleInformer.GetStore().List()
-
-				for _, obj := range existingCAPIRoles {
-
-					role, err := crd.ConvertUnstructured[crd.CAPIRole](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to Role: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIRole(role)
-				}
-
-				existingCAPIClusterRoles := capiRbacWatcher.CAPIClusterRoleInformer.GetStore().List()
-
-				for _, obj := range existingCAPIClusterRoles {
-
-					clusterRole, err := crd.ConvertUnstructured[crd.CAPIClusterRole](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to ClusterRole: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIClusterRole(clusterRole)
-				}
-
-				existingCAPIClusterRoleBindings := capiRbacWatcher.CAPIClusterRoleBindingInformer.GetStore().List()
-
-				for _, obj := range existingCAPIClusterRoleBindings {
-
-					clusterRoleBinding, err := crd.ConvertUnstructured[crd.CAPIClusterRoleBinding](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to ClusterRoleBinding: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIClusterRoleBinding(clusterRoleBinding)
-				}
-
-				existingCAPIRoleBindings := capiRbacWatcher.CAPIRoleBindingInformer.GetStore().List()
-
-				for _, obj := range existingCAPIRoleBindings {
-
-					roleBinding, err := crd.ConvertUnstructured[crd.CAPIRoleBinding](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to RoleBinding: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIRoleBinding(roleBinding)
-				}
-
-				capiRbacWatcher.RebuildAllAuthorizers()
-			}
-
 			// Initialise proxy with OIDC token authenticator
-			p, err := proxy.New(clustersConfig, opts.OIDCAuthentication, opts.Audit,
-				secureServingInfo, proxyConfig)
+			p, err := proxy.New(opts.OIDCAuthentication, opts.Audit,
+				secureServingInfo, proxyConfig, clusterManager)
 			if err != nil {
 				return err
 			}
+
+			// Set setup function for dynamic clusters
+			clusterManager.SetupFunc = p.SetupClusterProxy
+
+			go clusterManager.WatchDynamicClusters("default", "kube-oidc-proxy-kubeconfigs")
 
 			// Create a fake JWT to set up readiness probe
 			fakeJWT, err := util.FakeJWT(opts.OIDCAuthentication.IssuerURL)
@@ -266,8 +173,8 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 	}
 }
 
-func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
-	var clusterList []*proxy.ClusterConfig
+func LoadClusterConfig(path string) ([]*models.Cluster, error) {
+	var clusterList []*models.Cluster
 	var parsedConfig struct {
 		Clusters []struct {
 			Name       string `yaml:"name"`
@@ -286,7 +193,7 @@ func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
 	}
 
 	for _, cluster := range parsedConfig.Clusters {
-		clusterList = append(clusterList, &proxy.ClusterConfig{
+		clusterList = append(clusterList, &models.Cluster{
 			Name: cluster.Name,
 			Path: cluster.Kubeconfig,
 		})
@@ -294,7 +201,7 @@ func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
 	return clusterList, nil
 }
 
-func clusterConfigValidation(clusterConfig []*proxy.ClusterConfig) error {
+func clusterConfigValidation(clusterConfig []*models.Cluster) error {
 	// check if the cluster name is not empty and unique
 	clusterNames := make(map[string]bool)
 	for _, cluster := range clusterConfig {

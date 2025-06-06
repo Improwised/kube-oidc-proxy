@@ -2,6 +2,7 @@
 package framework
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -118,7 +120,7 @@ func (f *Framework) BeforeEach() {
 // AfterEach deletes the namespace, after reading its events.
 func (f *Framework) AfterEach() {
 	// Output logs from proxy of test case.
-	err := f.Helper().Kubectl(f.Namespace.Name).Run("logs", "-lapp=kube-oidc-proxy-e2e")
+	err := f.Helper().Kubectl(f.Namespace.Name).Run("logs", "-f", "-lapp=kube-oidc-proxy-e2e")
 	if err != nil {
 		By("Failed to gather logs from kube-oidc-proxy: " + err.Error())
 	}
@@ -211,4 +213,19 @@ func (f *Framework) NewProxyClient() kubernetes.Interface {
 
 func CasesDescribe(text string, body func()) bool {
 	return Describe("[TEST] "+text, body)
+}
+
+func (f *Framework) CreateDynamicClusterSecret(name string, kubeconfig []byte) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kube-oidc-proxy-kubeconfigs",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			name: kubeconfig,
+		},
+	}
+
+	_, err := f.Helper().KubeClient.CoreV1().Secrets("default").Create(context.TODO(), secret, metav1.CreateOptions{})
+	return err
 }

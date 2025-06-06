@@ -133,7 +133,6 @@ func (h *Helper) DeployProxy(ns *corev1.Namespace, issuerURL *url.URL, clientID 
 			"--oidc-groups-claim=groups",
 			"--oidc-ca-file=/oidc/ca.pem",
 			"--oidc-ca-file=/oidc/ca.pem",
-			"--v=10",
 			"--audit-webhook-server=https://127.0.0.1:8989",
 			"--clusters-config=/etc/clusters-config/clusters.yaml",
 			"--audit-webhook-server=https://127.0.0.1:8989",

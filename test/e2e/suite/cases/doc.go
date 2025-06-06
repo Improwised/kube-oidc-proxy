@@ -11,4 +11,5 @@ import (
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/rbac"
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/token"
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/upgrade"
+	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/clustermanager"
 )
