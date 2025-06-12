@@ -1,16 +1,14 @@
 package crd
 
 import (
-	"os"
 	"time"
 
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 )
 
@@ -19,12 +17,12 @@ type CAPIRbacWatcher struct {
 	CAPIRoleInformer               cache.SharedIndexInformer
 	CAPIClusterRoleBindingInformer cache.SharedIndexInformer
 	CAPIRoleBindingInformer        cache.SharedIndexInformer
-	clusters                       []*proxy.ClusterConfig
+	clusters                       []*cluster.Cluster
 }
 
-func NewCAPIRbacWatcher(clusters []*proxy.ClusterConfig) (*CAPIRbacWatcher, error) {
+func NewCAPIRbacWatcher(clusters []*cluster.Cluster) (*CAPIRbacWatcher, error) {
 
-	clusterConfig, err := buildConfiguration()
+	clusterConfig, err := util.BuildConfiguration()
 	if err != nil {
 		return &CAPIRbacWatcher{}, err
 	}
@@ -53,22 +51,6 @@ func NewCAPIRbacWatcher(clusters []*proxy.ClusterConfig) (*CAPIRbacWatcher, erro
 	watcher.RegisterEventHandlers()
 
 	return watcher, nil
-}
-
-func buildConfiguration() (*rest.Config, error) {
-	kubeconfig := os.Getenv("KUBECONFIG")
-	var clusterConfig *rest.Config
-	var err error
-	if kubeconfig != "" {
-		clusterConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-	} else {
-		clusterConfig, err = rest.InClusterConfig()
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return clusterConfig, nil
 }
 
 // Start the informers
@@ -269,4 +251,8 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			w.RebuildAllAuthorizers()
 		},
 	})
+}
+
+func (w *CAPIRbacWatcher) UpdateClusters(clusters []*cluster.Cluster) {
+	w.clusters = clusters
 }
