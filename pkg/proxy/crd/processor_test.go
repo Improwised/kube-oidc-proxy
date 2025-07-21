@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,13 +51,13 @@ func TestConvertUnstructured_Failure(t *testing.T) {
 
 func TestProcessCAPIRole(t *testing.T) {
 	// Setup test cluster
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			Roles: make([]*v1.Role, 0),
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	// Test CAPIRole
 	capiRole := &CAPIRole{
@@ -93,13 +93,13 @@ func TestDeleteCAPIRole(t *testing.T) {
 			},
 		},
 	}
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			Roles: []*v1.Role{testRole},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	// Create CAPIRole for deletion
 	capiRole := &CAPIRole{
@@ -120,7 +120,7 @@ func TestDeleteCAPIRole(t *testing.T) {
 }
 
 func TestDetermineTargetClusters(t *testing.T) {
-	testClusters := []*proxy.ClusterConfig{
+	testClusters := []*cluster.Cluster{
 		{Name: "cluster1"},
 		{Name: "cluster2"},
 	}
@@ -168,7 +168,7 @@ func TestCreateClusterRoleBinding(t *testing.T) {
 }
 
 func TestRebuildAllAuthorizers(t *testing.T) {
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			Roles: []*v1.Role{{
@@ -177,7 +177,7 @@ func TestRebuildAllAuthorizers(t *testing.T) {
 			}},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	watcher.RebuildAllAuthorizers()
 
@@ -186,13 +186,13 @@ func TestRebuildAllAuthorizers(t *testing.T) {
 }
 
 func TestApplyToClusters(t *testing.T) {
-	testClusters := []*proxy.ClusterConfig{
+	testClusters := []*cluster.Cluster{
 		{Name: "cluster1", RBACConfig: &util.RBAC{}},
 		{Name: "cluster2", RBACConfig: &util.RBAC{}},
 	}
 
 	counter := 0
-	applyToClusters([]string{"cluster1"}, testClusters, func(c *proxy.ClusterConfig) {
+	applyToClusters([]string{"cluster1"}, testClusters, func(c *cluster.Cluster) {
 		counter++
 	})
 
@@ -201,12 +201,12 @@ func TestApplyToClusters(t *testing.T) {
 
 func TestGetAllClusterNames(t *testing.T) {
 	t.Run("empty clusters", func(t *testing.T) {
-		clusters := []*proxy.ClusterConfig{}
+		clusters := []*cluster.Cluster{}
 		assert.Empty(t, getAllClusterNames(clusters))
 	})
 
 	t.Run("multiple clusters", func(t *testing.T) {
-		clusters := []*proxy.ClusterConfig{
+		clusters := []*cluster.Cluster{
 			{Name: "cluster1"},
 			{Name: "cluster2"},
 		}
@@ -335,13 +335,13 @@ func TestCreateRoleBinding(t *testing.T) {
 }
 
 func TestProcessCAPIClusterRole(t *testing.T) {
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			ClusterRoles: make([]*v1.ClusterRole, 0),
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiClusterRole := &CAPIClusterRole{
 		Spec: CAPIClusterRoleSpec{
@@ -362,7 +362,7 @@ func TestProcessCAPIClusterRole(t *testing.T) {
 }
 
 func TestDeleteCAPIClusterRole(t *testing.T) {
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			ClusterRoles: []*v1.ClusterRole{{
@@ -375,7 +375,7 @@ func TestDeleteCAPIClusterRole(t *testing.T) {
 			}},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiClusterRole := &CAPIClusterRole{
 		Spec: CAPIClusterRoleSpec{
@@ -391,13 +391,13 @@ func TestDeleteCAPIClusterRole(t *testing.T) {
 }
 
 func TestProcessCAPIRoleBinding(t *testing.T) {
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			RoleBindings: make([]*v1.RoleBinding, 0),
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiRoleBinding := &CAPIRoleBinding{
 		Spec: CAPIRoleBindingSpec{
@@ -429,13 +429,13 @@ func TestDeleteCAPIRoleBinding(t *testing.T) {
 			},
 		},
 	}
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			RoleBindings: []*v1.RoleBinding{testRoleBinding},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiRoleBinding := &CAPIRoleBinding{
 		Spec: CAPIRoleBindingSpec{
@@ -452,13 +452,13 @@ func TestDeleteCAPIRoleBinding(t *testing.T) {
 }
 
 func TestProcessCAPIClusterRoleBinding(t *testing.T) {
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			ClusterRoleBindings: make([]*v1.ClusterRoleBinding, 0),
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiCRB := &CAPIClusterRoleBinding{
 		Spec: CAPIClusterRoleBindingSpec{
@@ -488,13 +488,13 @@ func TestDeleteCAPIClusterRoleBinding(t *testing.T) {
 			},
 		},
 	}
-	testCluster := &proxy.ClusterConfig{
+	testCluster := &cluster.Cluster{
 		Name: "cluster1",
 		RBACConfig: &util.RBAC{
 			ClusterRoleBindings: []*v1.ClusterRoleBinding{testCRB},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*proxy.ClusterConfig{testCluster}}
+	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	capiCRB := &CAPIClusterRoleBinding{
 		Spec: CAPIClusterRoleBindingSpec{
@@ -510,13 +510,13 @@ func TestDeleteCAPIClusterRoleBinding(t *testing.T) {
 }
 
 func TestApplyToClusters_NonExistentCluster(t *testing.T) {
-	testClusters := []*proxy.ClusterConfig{
+	testClusters := []*cluster.Cluster{
 		{Name: "cluster1", RBACConfig: &util.RBAC{}},
 		{Name: "cluster2", RBACConfig: &util.RBAC{}},
 	}
 
 	counter := 0
-	applyToClusters([]string{"cluster3"}, testClusters, func(c *proxy.ClusterConfig) {
+	applyToClusters([]string{"cluster3"}, testClusters, func(c *cluster.Cluster) {
 		counter++
 	})
 
