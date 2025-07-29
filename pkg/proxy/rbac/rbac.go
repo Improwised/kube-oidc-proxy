@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
+	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -42,7 +42,7 @@ var defalutRole = map[string]v1.PolicyRule{
 	},
 }
 
-func LoadRBAC(cluster *proxy.ClusterConfig) error {
+func LoadRBAC(cluster *cluster.Cluster) error {
 
 	// First load existing RBAC resources from the cluster
 	err := loadExistingRBAC(cluster)
@@ -167,7 +167,7 @@ func LoadRBAC(cluster *proxy.ClusterConfig) error {
 	return nil
 }
 
-func loadExistingRBAC(cluster *proxy.ClusterConfig) error {
+func loadExistingRBAC(cluster *cluster.Cluster) error {
 	// List existing ClusterRoles
 	clusterRoles, err := cluster.Kubeclient.RbacV1().ClusterRoles().List(context.Background(), apisv1.ListOptions{})
 	if err != nil {
@@ -220,7 +220,7 @@ func loadExistingRBAC(cluster *proxy.ClusterConfig) error {
 	return nil
 }
 
-func setupRBACWatchers(cluster *proxy.ClusterConfig) error {
+func setupRBACWatchers(cluster *cluster.Cluster) error {
 	// Watch ClusterRoles
 	watchClusterRoles, err := cluster.Kubeclient.RbacV1().ClusterRoles().Watch(context.Background(), apisv1.ListOptions{})
 	if err != nil {
@@ -338,7 +338,7 @@ func setupRBACWatchers(cluster *proxy.ClusterConfig) error {
 	return nil
 }
 
-func watchNamespaceRoles(watchRoles watch.Interface, cluster *proxy.ClusterConfig) {
+func watchNamespaceRoles(watchRoles watch.Interface, cluster *cluster.Cluster) {
 	for event := range watchRoles.ResultChan() {
 		role, ok := event.Object.(*v1.Role)
 		if !ok {
@@ -368,7 +368,7 @@ func watchNamespaceRoles(watchRoles watch.Interface, cluster *proxy.ClusterConfi
 	}
 }
 
-func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *proxy.ClusterConfig) {
+func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *cluster.Cluster) {
 	for event := range watchRoleBindings.ResultChan() {
 		rb, ok := event.Object.(*v1.RoleBinding)
 		if !ok {
@@ -398,7 +398,7 @@ func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *prox
 	}
 }
 
-func updateAuthorizer(cluster *proxy.ClusterConfig) {
+func updateAuthorizer(cluster *cluster.Cluster) {
 	_, staticRoles := rbacvalidation.NewTestRuleResolver(
 		cluster.RBACConfig.Roles,
 		cluster.RBACConfig.RoleBindings,
@@ -406,5 +406,4 @@ func updateAuthorizer(cluster *proxy.ClusterConfig) {
 		cluster.RBACConfig.ClusterRoleBindings,
 	)
 	cluster.Authorizer = util.NewAuthorizer(staticRoles)
-	klog.V(4).Infof("Updated authorizer for cluster %s", cluster.Name)
 }

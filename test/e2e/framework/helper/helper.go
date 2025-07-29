@@ -48,7 +48,6 @@ func (h *Helper) Config() *config.Config {
 	return h.cfg
 }
 
-// helper.go
 func (h *Helper) CreateCRDObject(obj interface{}, gvr schema.GroupVersionResource, namespace string) error {
 	unstructuredObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
@@ -96,4 +95,23 @@ func (h *Helper) UpdateCRDObject(obj interface{}, gvr schema.GroupVersionResourc
 		metav1.UpdateOptions{},
 	)
 	return err
+}
+
+func (h *Helper) DeleteCRDObject(name string, gvr schema.GroupVersionResource, namespace string) error {
+	dynamicClient, err := h.NewDynamicClient()
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %v", err)
+	}
+
+	// Delete the resource by name
+	err = dynamicClient.Resource(gvr).Namespace(namespace).Delete(
+		context.TODO(),
+		name,
+		metav1.DeleteOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %v", err)
+	}
+
+	return nil
 }

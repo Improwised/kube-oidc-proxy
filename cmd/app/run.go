@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,254 +12,200 @@ import (
 	"k8s.io/apiserver/pkg/server"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
+	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
+	"github.com/Improwised/kube-oidc-proxy/pkg/clustermanager"
 	"github.com/Improwised/kube-oidc-proxy/pkg/probe"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/rbac"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// NewRunCommand creates and returns the main cobra command for running the proxy
 func NewRunCommand(stopCh <-chan struct{}) *cobra.Command {
-	// Build options
+	// Initialize configuration options
 	opts := options.New()
 
-	// Build command
+	// Build the run command with provided options
 	cmd := buildRunCommand(stopCh, opts)
 
-	// Add option flags to command
+	// Add command line flags from options
 	opts.AddFlags(cmd)
 
 	return cmd
 }
 
-// Proxy command
+// buildRunCommand constructs the main proxy command with execution logic
 func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:  options.AppName,
 		Long: "kube-oidc-proxy is a reverse proxy to authenticate users to Kubernetes API servers with Open ID Connect Authentication.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Validate command line options
 			if err := opts.Validate(cmd); err != nil {
-				return err
+				return fmt.Errorf("options validation failed: %w", err)
 			}
 
-			// check if the cluster config file exists
+			// Verify cluster configuration file exists
 			if _, err := os.Stat(opts.App.Cluster.Config); err != nil {
-				return err
+				return fmt.Errorf("cluster config file not found: %w", err)
 			}
 
-			// Load cluster config
-			clustersConfig, err := LoadClusterConfig(opts.App.Cluster.Config)
+			// Load and parse cluster configuration
+			clusterConfigs, err := LoadClusterConfig(opts.App.Cluster.Config)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to load cluster config: %w", err)
 			}
 
-			// Validate cluster config
-			if err := clusterConfigValidation(clustersConfig); err != nil {
-				return err
+			// Validate cluster configuration
+			if err := validateClusterConfig(clusterConfigs); err != nil {
+				return fmt.Errorf("invalid cluster configuration: %w", err)
 			}
 
-			var clustersRoleConfigMap map[string]util.RBAC
+			var clusterRBACConfigs map[string]util.RBAC
 			if opts.App.Cluster.RoleConfig != "" {
-				// check if the cluster role config file exists
+				// Check if RBAC configuration file exists
 				if _, err := os.Stat(opts.App.Cluster.RoleConfig); err != nil {
-					return err
+					return fmt.Errorf("RBAC config file not found: %w", err)
 				}
 
-				clustersRoleConfigMap, err = util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
+				// Load RBAC role configurations
+				clusterRBACConfigs, err = util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to load RBAC config: %w", err)
 				}
 			}
 
-			isRBACLoded := make(map[string]bool)
-			for _, cluster := range clustersConfig {
-				isRBACLoded[cluster.Name] = false
-				ConfigFlags := &genericclioptions.ConfigFlags{
+			// Initialize CAPI RBAC watcher if available
+			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(clusterConfigs)
+			if err != nil {
+				klog.Errorf("Failed to initialize CAPI RBAC watcher: %v", err)
+				capiRBACWatcher = nil // Continue without watcher if initialization fails
+			}
+
+			// Create cluster manager to handle dynamic clusters
+			clusterManager, err := clustermanager.NewClusterManager(
+				stopCh,
+				opts.App.TokenPassthrough.Enabled,
+				opts.App.TokenPassthrough.Audiences,
+				clusterRBACConfigs,
+				capiRBACWatcher,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create cluster manager: %w", err)
+			}
+
+			// Initialize each static cluster
+			for _, cluster := range clusterConfigs {
+				configFlags := &genericclioptions.ConfigFlags{
 					KubeConfig: &cluster.Path,
 				}
-				tempClient := &options.ClientOptions{
-					ConfigFlags: ConfigFlags,
+				clientOptions := &options.ClientOptions{
+					ConfigFlags: configFlags,
 				}
 
-				r, err := tempClient.ToRESTConfig()
+				// Create REST config for the cluster
+				restConfig, err := clientOptions.ToRESTConfig()
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to create REST config for cluster %s: %w", cluster.Name, err)
 				}
-				cluster.RestConfig = r
-				if cluster.RBACConfig == nil {
-					cluster.RBACConfig = &util.RBAC{}
+				cluster.RestConfig = restConfig
+
+				// Set up the cluster in the manager
+				if err := clusterManager.ClusterSetup(cluster); err != nil {
+					return fmt.Errorf("failed to setup cluster %s: %w", cluster.Name, err)
 				}
+				cluster.IsStatic = true // Mark as statically configured
+				clusterManager.AddOrUpdateCluster(cluster)
 			}
 
-			// Initialise token reviewer if enabled
-			var tokenReviewer *tokenreview.TokenReview
-			if opts.App.TokenPassthrough.Enabled {
-
-				for _, cluster := range clustersConfig {
-					tokenReviewer, err = tokenreview.New(cluster.RestConfig, opts.App.TokenPassthrough.Audiences)
-					if err != nil {
-						return err
-					}
-					cluster.TokenReviewer = tokenReviewer
-				}
+			// Start CAPI RBAC watcher if available
+			if capiRBACWatcher != nil {
+				klog.V(5).Info("Starting CAPI RBAC watcher")
+				capiRBACWatcher.Start(stopCh)
+				capiRBACWatcher.ProcessExistingRBACObjects()
 			}
 
-			// Initialise Secure Serving Config
+			// Configure secure serving for the proxy
 			secureServingInfo := new(server.SecureServingInfo)
 			if err := opts.SecureServing.ApplyTo(&secureServingInfo); err != nil {
-				return err
+				return fmt.Errorf("failed to configure secure serving: %w", err)
 			}
 
+			// Create proxy configuration
 			proxyConfig := &proxy.Config{
-				TokenReview:          opts.App.TokenPassthrough.Enabled,
-				DisableImpersonation: opts.App.DisableImpersonation,
-
-				FlushInterval:   opts.App.FlushInterval,
-				ExternalAddress: opts.SecureServing.BindAddress.String(),
-
+				TokenReview:                     opts.App.TokenPassthrough.Enabled,
+				DisableImpersonation:            opts.App.DisableImpersonation,
+				FlushInterval:                   opts.App.FlushInterval,
+				ExternalAddress:                 opts.SecureServing.BindAddress.String(),
 				ExtraUserHeaders:                opts.App.ExtraHeaderOptions.ExtraUserHeaders,
 				ExtraUserHeadersClientIPEnabled: opts.App.ExtraHeaderOptions.EnableClientIPExtraUserHeader,
 			}
 
-			// Setup Subject Access Review for each cluster
-			for _, cluster := range clustersConfig {
-				kubeclient, err := kubernetes.NewForConfig(cluster.RestConfig)
-				if err != nil {
-					return err
-				}
-
-				subectAccessReviewer, err := subjectaccessreview.New(kubeclient.AuthorizationV1().SubjectAccessReviews())
-				if err != nil {
-					return err
-				}
-
-				cluster.Kubeclient = kubeclient
-				cluster.SubjectAccessReviewer = subectAccessReviewer
-
-			}
-
-			for clusterName, RBACConfig := range clustersRoleConfigMap {
-				for _, cluster := range clustersConfig {
-					if cluster.Name == clusterName {
-						isRBACLoded[cluster.Name] = true
-						cluster.RBACConfig.Roles = append(cluster.RBACConfig.Roles, RBACConfig.Roles...)
-						cluster.RBACConfig.ClusterRoles = append(cluster.RBACConfig.ClusterRoles, RBACConfig.ClusterRoles...)
-						cluster.RBACConfig.ClusterRoleBindings = append(cluster.RBACConfig.ClusterRoleBindings, RBACConfig.ClusterRoleBindings...)
-						cluster.RBACConfig.RoleBindings = append(cluster.RBACConfig.RoleBindings, RBACConfig.RoleBindings...)
-						err := rbac.LoadRBAC(cluster)
-						if err != nil {
-							return err
-						}
-					}
-				}
-			}
-
-			for _, cluster := range clustersConfig {
-				if !isRBACLoded[cluster.Name] {
-					err := rbac.LoadRBAC(cluster)
-					if err != nil {
-						return err
-					}
-				}
-			}
-
-			capiRbacWatcher, err := crd.NewCAPIRbacWatcher(clustersConfig)
+			// Initialize the proxy with OIDC authentication
+			proxyInstance, err := proxy.New(
+				opts.OIDCAuthentication,
+				opts.Audit,
+				secureServingInfo,
+				proxyConfig,
+				clusterManager,
+			)
 			if err != nil {
-				fmt.Println("Error starting CAPI RBAC watcher", err)
-			} else {
-				klog.V(5).Info("Starting CAPI RBAC watcher", capiRbacWatcher)
-				capiRbacWatcher.Start(stopCh)
-
-				existingCAPIRoles := capiRbacWatcher.CAPIRoleInformer.GetStore().List()
-
-				for _, obj := range existingCAPIRoles {
-
-					role, err := crd.ConvertUnstructured[crd.CAPIRole](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to Role: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIRole(role)
-				}
-
-				existingCAPIClusterRoles := capiRbacWatcher.CAPIClusterRoleInformer.GetStore().List()
-
-				for _, obj := range existingCAPIClusterRoles {
-
-					clusterRole, err := crd.ConvertUnstructured[crd.CAPIClusterRole](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to ClusterRole: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIClusterRole(clusterRole)
-				}
-
-				existingCAPIClusterRoleBindings := capiRbacWatcher.CAPIClusterRoleBindingInformer.GetStore().List()
-
-				for _, obj := range existingCAPIClusterRoleBindings {
-
-					clusterRoleBinding, err := crd.ConvertUnstructured[crd.CAPIClusterRoleBinding](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to ClusterRoleBinding: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIClusterRoleBinding(clusterRoleBinding)
-				}
-
-				existingCAPIRoleBindings := capiRbacWatcher.CAPIRoleBindingInformer.GetStore().List()
-
-				for _, obj := range existingCAPIRoleBindings {
-
-					roleBinding, err := crd.ConvertUnstructured[crd.CAPIRoleBinding](obj)
-					if err != nil {
-						klog.Errorf("Failed to convert unstructured object to RoleBinding: %v", err)
-						continue
-					}
-
-					capiRbacWatcher.ProcessCAPIRoleBinding(roleBinding)
-				}
-
-				capiRbacWatcher.RebuildAllAuthorizers()
+				return fmt.Errorf("failed to initialize proxy: %w", err)
 			}
 
-			// Initialise proxy with OIDC token authenticator
-			p, err := proxy.New(clustersConfig, opts.OIDCAuthentication, opts.Audit,
-				secureServingInfo, proxyConfig)
-			if err != nil {
-				return err
+			// Configure cluster manager to use proxy for dynamic clusters
+			clusterManager.SetupFunc = proxyInstance.SetupClusterProxy
+
+			// Start watching for dynamic clusters using the new controller pattern
+			if opts.SecretNamespace == "" {
+				opts.SecretNamespace = getCurrentNamespace()
 			}
 
-			// Create a fake JWT to set up readiness probe
+			// Create context from stopCh for the secret controller
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				<-stopCh
+				cancel()
+			}()
+
+			// Start the secret controller with proper controller pattern
+			if err := clusterManager.StartSecretController(ctx, opts.SecretNamespace, opts.SecretName, 1); err != nil {
+				return fmt.Errorf("failed to start secret controller: %w", err)
+			}
+
+			// Generate fake JWT for readiness probe
 			fakeJWT, err := util.FakeJWT(opts.OIDCAuthentication.IssuerURL)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to generate fake JWT: %w", err)
 			}
 
-			// Start readiness probe
-			if err := probe.Run(strconv.Itoa(opts.App.ReadinessProbePort),
-				fakeJWT, p.OIDCTokenAuthenticator()); err != nil {
-				return err
+			// Start readiness probe server
+			if err := probe.Run(
+				strconv.Itoa(opts.App.ReadinessProbePort),
+				fakeJWT,
+				proxyInstance.OIDCTokenAuthenticator(),
+			); err != nil {
+				return fmt.Errorf("failed to start readiness probe: %w", err)
 			}
 
-			// Run proxy
-			waitCh, listenerStoppedCh, err := p.Run(stopCh)
+			// Run the proxy and wait for shutdown signals
+			waitCh, listenerStoppedCh, err := proxyInstance.Run(stopCh)
 			if err != nil {
-				return err
+				return fmt.Errorf("proxy run failed: %w", err)
 			}
 
+			// Wait for shutdown signals
 			<-waitCh
 			<-listenerStoppedCh
 
-			if err := p.RunPreShutdownHooks(); err != nil {
-				return err
+			// Execute pre-shutdown hooks
+			if err := proxyInstance.RunPreShutdownHooks(); err != nil {
+				return fmt.Errorf("pre-shutdown hooks failed: %w", err)
 			}
 
 			return nil
@@ -266,45 +213,89 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 	}
 }
 
-func LoadClusterConfig(path string) ([]*proxy.ClusterConfig, error) {
-	var clusterList []*proxy.ClusterConfig
-	var parsedConfig struct {
+// LoadClusterConfig loads and parses the cluster configuration from YAML file
+func LoadClusterConfig(path string) ([]*cluster.Cluster, error) {
+	var clustersList []*cluster.Cluster
+	var config struct {
 		Clusters []struct {
 			Name       string `yaml:"name"`
 			Kubeconfig string `yaml:"kubeconfig"`
 		} `yaml:"clusters"`
 	}
 
+	// Read configuration file
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
-	}
-	// Parse the YAML into the Config struct
-	err = yaml.Unmarshal(data, &parsedConfig)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	for _, cluster := range parsedConfig.Clusters {
-		clusterList = append(clusterList, &proxy.ClusterConfig{
-			Name: cluster.Name,
-			Path: cluster.Kubeconfig,
+	// Parse YAML configuration
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
+	}
+
+	// Convert configuration to cluster models
+	for _, clusterConfig := range config.Clusters {
+		clustersList = append(clustersList, &cluster.Cluster{
+			Name: clusterConfig.Name,
+			Path: clusterConfig.Kubeconfig,
 		})
 	}
-	return clusterList, nil
+
+	return clustersList, nil
 }
 
-func clusterConfigValidation(clusterConfig []*proxy.ClusterConfig) error {
-	// check if the cluster name is not empty and unique
+// validateClusterConfig checks for basic configuration validity
+func validateClusterConfig(clusterConfig []*cluster.Cluster) error {
 	clusterNames := make(map[string]bool)
+
 	for _, cluster := range clusterConfig {
+		// Check for empty cluster name
 		if cluster.Name == "" {
-			return fmt.Errorf("cluster name is empty")
+			return fmt.Errorf("cluster name cannot be empty")
 		}
-		if _, ok := clusterNames[cluster.Name]; ok {
-			return fmt.Errorf("cluster name %s is repeated", cluster.Name)
+
+		// Check for duplicate cluster names
+		if _, exists := clusterNames[cluster.Name]; exists {
+			return fmt.Errorf("duplicate cluster name: %s", cluster.Name)
 		}
 		clusterNames[cluster.Name] = true
 	}
+
 	return nil
+}
+
+func getCurrentNamespace() string {
+	ns := "kube-oidc-proxy" //set namespace to kube-oidc-proxy as conventional assumtion
+
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		klog.Errorf("failed to get incluster config: %v", err)
+		return ns
+	}
+
+	// Create Kubernetes client
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		klog.Errorf("failed to create clientset: %v", err)
+		return ns
+	}
+
+	labelSelector := fmt.Sprintf("app.kubernetes.io/component=%s,app.kubernetes.io/instance=%s", options.AppName, options.AppName)
+
+	// List Services across all namespaces
+	services, err := clientset.CoreV1().Services("").List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		klog.Errorf("error listing services: %v", err)
+		return ns
+	}
+
+	// Print matching services
+	for _, svc := range services.Items {
+		return svc.Namespace
+	}
+
+	return ns
 }

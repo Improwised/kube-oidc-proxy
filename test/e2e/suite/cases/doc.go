@@ -3,6 +3,7 @@ package cases
 
 import (
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/audit"
+	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/clustermanager"
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/crd"
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/headers"
 	_ "github.com/Improwised/kube-oidc-proxy/test/e2e/suite/cases/impersonation"

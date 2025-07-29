@@ -2,7 +2,6 @@ package crd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -112,7 +111,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 		}
 		err := f.Helper().CreateCRDObject(capiClusterRole, crd.CAPIClusterRoleGVR, "")
-		fmt.Println(err)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Creating CAPIClusterRoleBinding for group-1")
@@ -134,7 +132,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 		}
 		err = f.Helper().CreateCRDObject(capiClusterRoleBinding, crd.CAPIClusterRoleBindingGVR, "")
-		fmt.Println(err)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for RBAC reconciliation")
@@ -341,7 +338,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 		invalidClient, _ := kubernetes.NewForConfig(invalidConfig)
 
 		_, err := invalidClient.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		fmt.Println(err)
 		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 	})
@@ -479,7 +475,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 		err := f.Helper().CreateCRDObject(capiClusterRoleBinding, crd.CAPIClusterRoleBindingGVR, "")
 		Expect(err).NotTo(HaveOccurred())
-		fmt.Println(err)
 
 		// Test access to multiple resources
 		By("Accessing pods")
