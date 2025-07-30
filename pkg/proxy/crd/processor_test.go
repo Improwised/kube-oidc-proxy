@@ -313,24 +313,102 @@ func TestConvertSubjects(t *testing.T) {
 }
 
 func TestCreateRoleBinding(t *testing.T) {
-	capiBinding := &CAPIRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-rolebinding"},
-		Spec: CAPIRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
-				RoleRef:  []string{"role1", "role2"},
-				Subjects: []Subject{{User: "test-user"}},
+	tests := []struct {
+		name                string
+		capiRoleBinding     *CAPIRoleBinding
+		namespace           string
+		clusters            []*proxy.ClusterConfig
+		expectedBindings    int
+		expectedRoleRefKind string
+		description         string
+	}{
+		{
+			name: "Create RoleBinding referencing Role",
+			capiRoleBinding: &CAPIRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-binding",
+				},
+				Spec: CAPIRoleBindingSpec{
+					CommonBindingSpec: CommonBindingSpec{
+						RoleRef: []string{"test-role"},
+						Subjects: []Subject{
+							{
+								User: "test-user",
+							},
+						},
+					},
+				},
 			},
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{
+				{
+					Name: "cluster1",
+					RBACConfig: &util.RBAC{
+						Roles: []*v1.Role{
+							{
+								ObjectMeta: metav1.ObjectMeta{
+									Name:      "test-role",
+									Namespace: "test-ns",
+								},
+							},
+						},
+					},
+				}},
+			expectedBindings:    1,
+			expectedRoleRefKind: "Role",
+			description:         "Should create RoleBinding referencing Role when Role exists",
+		},
+		{
+			name: "Create RoleBinding referencing ClusterRole",
+			capiRoleBinding: &CAPIRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-binding",
+				},
+				Spec: CAPIRoleBindingSpec{
+					CommonBindingSpec: CommonBindingSpec{
+						RoleRef: []string{"test-cluster-role"},
+						Subjects: []Subject{
+							{User: "test-user"},
+						},
+					},
+				},
+			},
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{{
+				Name: "cluster-1",
+				RBACConfig: &util.RBAC{
+					ClusterRoles: []*v1.ClusterRole{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test-cluster-role",
+							},
+						},
+					},
+				},
+			}},
+			expectedBindings:    1,
+			expectedRoleRefKind: "ClusterRole",
+			description:         "Should create RoleBinding referencing ClusterRole when only ClusterRole exists",
 		},
 	}
 
-	bindings := createRoleBinding(capiBinding, "test-ns")
-	require.Len(t, bindings, 2)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := &CAPIRbacWatcher{
+				clusters: tt.clusters,
+			}
 
-	for i, binding := range bindings {
-		assert.Equal(t, fmt.Sprintf("test-rolebinding-role%d", i+1), binding.Name)
-		assert.Equal(t, "test-ns", binding.Namespace)
-		assert.Equal(t, "test-user", binding.Subjects[0].Name)
-		assert.Equal(t, "User", binding.Subjects[0].Kind)
+			roleBindings := createRoleBinding(tt.capiRoleBinding, tt.namespace, ctrl)
+
+			require.Equal(t, tt.expectedBindings, len(roleBindings), tt.description)
+			assert.Equal(t, tt.expectedRoleRefKind, roleBindings[0].RoleRef.Kind, tt.description)
+			assert.Equal(t, v1.GroupName, roleBindings[0].RoleRef.APIGroup, "APIGroup should be set correctly")
+			assert.Equal(t, tt.namespace, roleBindings[0].Namespace, "Namespace should be set correctly")
+
+			// Verify managed-by annotation
+			expectedAnnotation := constants.Group + "/managed-by"
+			assert.Equal(t, tt.capiRoleBinding.Name, roleBindings[0].Annotations[expectedAnnotation], "Should have correct managed-by annotation")
+		})
 	}
 }
 
@@ -547,4 +625,455 @@ func getAnnotationKey(annotations map[string]string) string {
 		return k
 	}
 	return ""
+}
+
+func TestDetermineRoleRefKindAndAPIGroup(t *testing.T) {
+	tests := []struct {
+		name             string
+		roleRef          string
+		namespace        string
+		clusters         []*proxy.ClusterConfig
+		expectedKind     string
+		expectedAPIGroup string
+		description      string
+	}{
+		{
+			name:      "Role exists in namespace - should prefer Role over ClusterRole",
+			roleRef:   "test-role",
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{{
+
+				Name: "cluster1",
+				RBACConfig: &util.RBAC{
+					Roles: []*v1.Role{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-role",
+								Namespace: "test-ns",
+							},
+						},
+					},
+					ClusterRoles: []*v1.ClusterRole{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test-role",
+							},
+						},
+					},
+				}},
+			},
+			expectedKind:     "Role",
+			expectedAPIGroup: v1.GroupName,
+			description:      "When both Role and ClusterRole exist with same name, Role should take precedence",
+		},
+		{
+			name:      "Only ClusterRole exists - should use ClusterRole",
+			roleRef:   "test-cluster-role",
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{{
+				Name: "cluster1",
+				RBACConfig: &util.RBAC{
+					Roles: []*v1.Role{},
+					ClusterRoles: []*v1.ClusterRole{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test-cluster-role",
+							},
+						},
+					},
+				},
+			}},
+			expectedKind:     "ClusterRole",
+			expectedAPIGroup: v1.GroupName,
+			description:      "When only ClusterRole exists, should use ClusterRole",
+		},
+		{
+			name:      "Role exists in different namespace - should use ClusterRole",
+			roleRef:   "test-role",
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{{
+				Name: "cluster1",
+				RBACConfig: &util.RBAC{
+					Roles: []*v1.Role{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-role",
+								Namespace: "different-ns",
+							},
+						},
+					},
+					ClusterRoles: []*v1.ClusterRole{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "test-role",
+							},
+						},
+					}},
+			},
+			},
+			expectedKind:     "ClusterRole",
+			expectedAPIGroup: v1.GroupName,
+			description:      "When Role exists in different namespace, should use ClusterRole",
+		},
+		{
+			name:      "Neither Role nor ClusterRole exists - should default to Role",
+			roleRef:   "non-existent-role",
+			namespace: "test-ns",
+			clusters: []*proxy.ClusterConfig{{
+				Name: "cluster1",
+				RBACConfig: &util.RBAC{
+					Roles:        []*v1.Role{},
+					ClusterRoles: []*v1.ClusterRole{},
+				}},
+			},
+			expectedKind:     "Role",
+			expectedAPIGroup: v1.GroupName,
+			description:      "When neither exists, should default to Role for forward compatibility",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := &CAPIRbacWatcher{
+				clusters: tt.clusters,
+			}
+
+			kind := determineRoleRefKindAndAPIGroup(tt.roleRef, ctrl, tt.namespace)
+
+			assert.Equal(t, tt.expectedKind, kind, tt.description)
+			assert.Equal(t, tt.expectedAPIGroup, v1.GroupName, tt.description)
+		})
+	}
+}
+
+func TestAddOrUpdateRole(t *testing.T) {
+	tests := []struct {
+		name            string
+		existingRoles   []*v1.Role
+		newRole         *v1.Role
+		expectedCount   int
+		expectedUpdated bool
+		description     string
+	}{
+		{
+			name:          "Add new role to empty list",
+			existingRoles: []*v1.Role{},
+			newRole: &v1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-role",
+					Namespace: "test-ns",
+				},
+			},
+			expectedCount:   1,
+			expectedUpdated: false,
+			description:     "Should add new role when list is empty",
+		},
+		{
+			name: "Update existing role",
+			existingRoles: []*v1.Role{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "existing-role",
+						Namespace: "test-ns",
+						Labels:    map[string]string{"version": "v1"},
+					},
+				},
+			},
+			newRole: &v1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "existing-role",
+					Namespace: "test-ns",
+					Labels:    map[string]string{"version": "v2"},
+				},
+			},
+			expectedCount:   1,
+			expectedUpdated: true,
+			description:     "Should update existing role in place",
+		},
+		{
+			name: "Add role with same name but different namespace",
+			existingRoles: []*v1.Role{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "same-name",
+						Namespace: "ns1",
+					},
+				},
+			},
+			newRole: &v1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "same-name",
+					Namespace: "ns2",
+				},
+			},
+			expectedCount:   2,
+			expectedUpdated: false,
+			description:     "Should add role with same name but different namespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &proxy.ClusterConfig{
+				RBACConfig: &util.RBAC{
+					Roles: tt.existingRoles,
+				},
+			}
+			ctrl := &CAPIRbacWatcher{}
+
+			ctrl.addOrUpdateRole(cluster, tt.newRole)
+
+			assert.Equal(t, tt.expectedCount, len(cluster.RBACConfig.Roles), tt.description)
+
+			if tt.expectedUpdated {
+				found := false
+				for _, role := range cluster.RBACConfig.Roles {
+					if role.Name == tt.newRole.Name && role.Namespace == tt.newRole.Namespace {
+						assert.Equal(t, tt.newRole.Labels, role.Labels, "Role should be updated with new labels")
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Updated role should be found")
+			}
+		})
+	}
+}
+
+func TestAddOrUpdateClusterRole(t *testing.T) {
+	tests := []struct {
+		name                 string
+		existingClusterRoles []*v1.ClusterRole
+		newClusterRole       *v1.ClusterRole
+		expectedCount        int
+		expectedUpdated      bool
+		description          string
+	}{
+		{
+			name:                 "Add new cluster role",
+			existingClusterRoles: []*v1.ClusterRole{},
+			newClusterRole: &v1.ClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "new-cluster-role",
+				},
+			},
+			expectedCount:   1,
+			expectedUpdated: false,
+			description:     "Should add new cluster role",
+		},
+		{
+			name: "Update existing cluster role",
+			existingClusterRoles: []*v1.ClusterRole{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "existing-cluster-role",
+						Labels: map[string]string{"version": "v1"},
+					},
+				},
+			},
+			newClusterRole: &v1.ClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "existing-cluster-role",
+					Labels: map[string]string{"version": "v2"},
+				},
+			},
+			expectedCount:   1,
+			expectedUpdated: true,
+			description:     "Should update existing cluster role in place",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &proxy.ClusterConfig{
+				RBACConfig: &util.RBAC{
+					ClusterRoles: tt.existingClusterRoles,
+				},
+			}
+			ctrl := &CAPIRbacWatcher{}
+
+			ctrl.addOrUpdateClusterRole(cluster, tt.newClusterRole)
+
+			assert.Equal(t, tt.expectedCount, len(cluster.RBACConfig.ClusterRoles), tt.description)
+
+			if tt.expectedUpdated {
+				found := false
+				for _, clusterRole := range cluster.RBACConfig.ClusterRoles {
+					if clusterRole.Name == tt.newClusterRole.Name {
+						assert.Equal(t, tt.newClusterRole.Labels, clusterRole.Labels, "ClusterRole should be updated")
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Updated cluster role should be found")
+			}
+		})
+	}
+}
+
+func TestReevaluateRoleBindingsForClusterRole(t *testing.T) {
+	tests := []struct {
+		name                 string
+		existingRoleBindings []*v1.RoleBinding
+		existingRoles        []*v1.Role
+		clusterRoleName      string
+		expectedUpdates      int
+		description          string
+	}{
+		{
+			name: "Update RoleBinding when no conflicting Role exists",
+			existingRoleBindings: []*v1.RoleBinding{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-binding",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							constants.Group + "/managed-by": "test-capi-binding",
+						},
+					},
+					RoleRef: v1.RoleRef{
+						Kind:     "Role",
+						Name:     "test-role",
+						APIGroup: v1.GroupName,
+					},
+				},
+			},
+			existingRoles:   []*v1.Role{},
+			clusterRoleName: "test-role",
+			expectedUpdates: 1,
+			description:     "Should update RoleBinding to reference ClusterRole when no conflicting Role exists",
+		},
+		{
+			name: "Do not update RoleBinding when conflicting Role exists",
+			existingRoleBindings: []*v1.RoleBinding{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-binding",
+						Namespace: "test-ns",
+						Annotations: map[string]string{
+							constants.Group + "/managed-by": "test-capi-binding",
+						},
+					},
+					RoleRef: v1.RoleRef{
+						Kind:     "Role",
+						Name:     "test-role",
+						APIGroup: v1.GroupName,
+					},
+				},
+			},
+			existingRoles: []*v1.Role{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-role",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			clusterRoleName: "test-role",
+			expectedUpdates: 0,
+			description:     "Should not update RoleBinding when conflicting Role exists in same namespace",
+		},
+		{
+			name: "Do not update unmanaged RoleBinding",
+			existingRoleBindings: []*v1.RoleBinding{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "unmanaged-binding",
+						Namespace: "test-ns",
+					},
+					RoleRef: v1.RoleRef{
+						Kind:     "Role",
+						Name:     "test-role",
+						APIGroup: v1.GroupName,
+					},
+				},
+			},
+			existingRoles:   []*v1.Role{},
+			clusterRoleName: "test-role",
+			expectedUpdates: 0,
+			description:     "Should not update RoleBinding that is not managed by CAPI controller",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &proxy.ClusterConfig{
+				RBACConfig: &util.RBAC{
+					RoleBindings: tt.existingRoleBindings,
+					Roles:        tt.existingRoles,
+				},
+			}
+			ctrl := &CAPIRbacWatcher{}
+
+			ctrl.reevaluateRoleBindingsForClusterRole(cluster, tt.clusterRoleName)
+
+			updatedCount := 0
+			for _, rb := range cluster.RBACConfig.RoleBindings {
+				if rb.RoleRef.Name == tt.clusterRoleName && rb.RoleRef.Kind == "ClusterRole" {
+					updatedCount++
+				}
+			}
+
+			assert.Equal(t, tt.expectedUpdates, updatedCount, tt.description)
+		})
+	}
+}
+
+func TestIntegrationScenario_RaceCondition(t *testing.T) {
+	// Test the race condition scenario where RoleBinding is processed before ClusterRole
+	ctrl := &CAPIRbacWatcher{
+		clusters: []*proxy.ClusterConfig{{
+			Name: "cluster1",
+			RBACConfig: &util.RBAC{
+				Roles:               []*v1.Role{},
+				ClusterRoles:        []*v1.ClusterRole{},
+				RoleBindings:        []*v1.RoleBinding{},
+				ClusterRoleBindings: []*v1.ClusterRoleBinding{},
+			}},
+		},
+	}
+
+	// Step 1: Process CAPIRoleBinding before ClusterRole exists
+	capiRoleBinding := &CAPIRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-binding",
+		},
+		Spec: CAPIRoleBindingSpec{
+			CommonBindingSpec: CommonBindingSpec{
+				TargetClusters: []string{"cluster1"},
+				RoleRef:        []string{"future-cluster-role"},
+				Subjects: []Subject{
+					{User: "test-user"},
+				},
+			},
+			TargetNamespaces: []string{"test-ns"},
+		},
+	}
+
+	ctrl.ProcessCAPIRoleBinding(capiRoleBinding)
+
+	// Verify RoleBinding was created with Kind="Role" (incorrect due to race condition)
+	cluster := ctrl.clusters[0]
+	require.Equal(t, 1, len(cluster.RBACConfig.RoleBindings), "RoleBinding should be created")
+	assert.Equal(t, "Role", cluster.RBACConfig.RoleBindings[0].RoleRef.Kind, "Should initially default to Role")
+
+	// Step 2: Process CAPIClusterRole
+	capiClusterRole := &CAPIClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "future-cluster-role",
+		},
+		Spec: CAPIClusterRoleSpec{
+			CommonRoleSpec: CommonRoleSpec{
+				TargetClusters: []string{"cluster1"},
+			},
+		},
+	}
+
+	ctrl.ProcessCAPIClusterRole(capiClusterRole)
+
+	// Verify ClusterRole was created and RoleBinding was updated
+	require.Equal(t, 1, len(cluster.RBACConfig.ClusterRoles), "ClusterRole should be created")
+	require.Equal(t, 1, len(cluster.RBACConfig.RoleBindings), "RoleBinding should still exist")
+	assert.Equal(t, "ClusterRole", cluster.RBACConfig.RoleBindings[0].RoleRef.Kind, "RoleBinding should now reference ClusterRole")
+	assert.Equal(t, v1.GroupName, cluster.RBACConfig.RoleBindings[0].RoleRef.APIGroup, "APIGroup should be correct")
 }
