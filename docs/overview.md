@@ -52,5 +52,7 @@ Organizations in regulated industries can implement Kube-OIDC-Proxy to ensure al
 Companies running Kubernetes across multiple cloud providers can use Kube-OIDC-Proxy as a unified access point, abstracting away the underlying infrastructure differences and providing consistent authentication.
 
 **Temporary Access Provisioning**:
+
 Security teams can grant temporary access to contractors or auditors by assigning time-limited roles through the identity provider, without changing cluster configurations or creating service accounts.
+
 ---
