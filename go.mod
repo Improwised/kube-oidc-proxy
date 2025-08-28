@@ -17,19 +17,19 @@ require (
 	golang.org/x/term v0.30.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 	k8s.io/api v0.32.0
+	k8s.io/apiextensions-apiserver v0.32.0
 	k8s.io/apimachinery v0.32.0
 	k8s.io/apiserver v0.32.0
 	k8s.io/cli-runtime v0.32.0
 	k8s.io/client-go v0.32.0
 	k8s.io/component-base v0.32.0
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubernetes v1.32.2
+	k8s.io/kubernetes v1.32.7
 	sigs.k8s.io/kind v0.24.0
 )
 
 require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	k8s.io/apiextensions-apiserver v0.32.0 // indirect
 	k8s.io/controller-manager v0.32.0 // indirect
 )
 
