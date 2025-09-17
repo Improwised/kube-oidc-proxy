@@ -49,9 +49,8 @@ var _ = framework.CasesDescribe("Token", func() {
 
 		// If does not return with Kubernetes forbidden error then error
 		_, err = client.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(err).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
+
 	})
 })
 

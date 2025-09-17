@@ -21,27 +21,20 @@ var _ = framework.CasesDescribe("RBAC", func() {
 	It("should return with a forbidden request with a valid token without rbac", func() {
 		By("Attempting to Get Pods")
 		_, err := f.ProxyClient.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Services")
 		_, err = f.ProxyClient.CoreV1().Services(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Secrets")
 		_, err = f.ProxyClient.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Nodes")
 		_, err = f.ProxyClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
+
 	})
 
 	It("should give access to resources based on the group role binding", func() {
@@ -84,21 +77,15 @@ var _ = framework.CasesDescribe("RBAC", func() {
 
 		By("Attempting to Get Services")
 		_, err = f.ProxyClient.CoreV1().Services(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Secrets")
 		_, err = f.ProxyClient.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Nodes")
 		_, err = f.ProxyClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Creating RoleBinding for Group 'group-2' to access Services")
 		_, err = f.Helper().KubeClient.RbacV1().RoleBindings(f.Namespace.Name).Create(context.TODO(),
@@ -124,15 +111,11 @@ var _ = framework.CasesDescribe("RBAC", func() {
 
 		By("Attempting to Get Secrets")
 		_, err = f.ProxyClient.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Attempting to Get Nodes")
 		_, err = f.ProxyClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Creating RoleBinding for Group 'group-2' to access Secrets")
 		_, err = f.Helper().KubeClient.RbacV1().RoleBindings(f.Namespace.Name).Create(context.TODO(),
@@ -162,8 +145,7 @@ var _ = framework.CasesDescribe("RBAC", func() {
 
 		By("Attempting to Get Nodes")
 		_, err = f.ProxyClient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-		if !k8sErrors.IsForbidden(err) {
-			Expect(fmt.Errorf("expected forbidden error, got=%s", err)).NotTo(HaveOccurred())
-		}
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
+
 	})
 })
