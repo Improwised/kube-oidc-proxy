@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,7 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -50,78 +52,46 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				return fmt.Errorf("options validation failed: %w", err)
 			}
 
-			// Verify cluster configuration file exists
-			if _, err := os.Stat(opts.App.Cluster.Config); err != nil {
-				return fmt.Errorf("cluster config file not found: %w", err)
-			}
-
 			// Load and parse cluster configuration
 			clusterConfigs, err := LoadClusterConfig(opts.App.Cluster.Config)
 			if err != nil {
-				return fmt.Errorf("failed to load cluster config: %w", err)
-			}
-
-			// Validate cluster configuration
-			if err := validateClusterConfig(clusterConfigs); err != nil {
-				return fmt.Errorf("invalid cluster configuration: %w", err)
+				klog.Warningf("failed to load cluster config: %v", err.Error())
 			}
 
 			var clusterRBACConfigs map[string]util.RBAC
 			if opts.App.Cluster.RoleConfig != "" {
 				// Check if RBAC configuration file exists
-				if _, err := os.Stat(opts.App.Cluster.RoleConfig); err != nil {
-					return fmt.Errorf("RBAC config file not found: %w", err)
-				}
-
-				// Load RBAC role configurations
-				clusterRBACConfigs, err = util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
-				if err != nil {
-					return fmt.Errorf("failed to load RBAC config: %w", err)
+				if _, err := os.Stat(opts.App.Cluster.RoleConfig); err == nil {
+					// Load RBAC role configurations
+					clusterRBACConfigs, err = util.LoadRBACConfig(opts.App.Cluster.RoleConfig)
+					if err != nil {
+						klog.Errorf("failed to load RBAC config: %v", err.Error())
+					}
+				} else {
+					klog.Errorf("RBAC config file not found: %v", err.Error())
 				}
 			}
 
+			rbacAuthorizer := authorizer.NewRBACAuthorizer()
+			onRBACUpdate := func(rbacConfig *util.RBAC, clusterName string) {
+				rbacAuthorizer.UpdatePermissionTrie(rbacConfig, clusterName)
+			}
+
 			// Initialize CAPI RBAC watcher if available
-			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(clusterConfigs)
+			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(clusterConfigs, onRBACUpdate)
 			if err != nil {
 				klog.Errorf("Failed to initialize CAPI RBAC watcher: %v", err)
 				capiRBACWatcher = nil // Continue without watcher if initialization fails
 			}
 
 			// Create cluster manager to handle dynamic clusters
-			clusterManager, err := clustermanager.NewClusterManager(
-				stopCh,
-				opts.App.TokenPassthrough.Enabled,
-				opts.App.TokenPassthrough.Audiences,
-				clusterRBACConfigs,
-				capiRBACWatcher,
-			)
+			clusterManager, err := clustermanager.NewClusterManager(opts.App.TokenPassthrough.Enabled, opts.App.TokenPassthrough.Audiences, clusterRBACConfigs, capiRBACWatcher, opts.App.MaxGoroutines, rbacAuthorizer)
 			if err != nil {
 				return fmt.Errorf("failed to create cluster manager: %w", err)
 			}
 
 			// Initialize each static cluster
-			for _, cluster := range clusterConfigs {
-				configFlags := &genericclioptions.ConfigFlags{
-					KubeConfig: &cluster.Path,
-				}
-				clientOptions := &options.ClientOptions{
-					ConfigFlags: configFlags,
-				}
-
-				// Create REST config for the cluster
-				restConfig, err := clientOptions.ToRESTConfig()
-				if err != nil {
-					return fmt.Errorf("failed to create REST config for cluster %s: %w", cluster.Name, err)
-				}
-				cluster.RestConfig = restConfig
-
-				// Set up the cluster in the manager
-				if err := clusterManager.ClusterSetup(cluster); err != nil {
-					return fmt.Errorf("failed to setup cluster %s: %w", cluster.Name, err)
-				}
-				cluster.IsStatic = true // Mark as statically configured
-				clusterManager.AddOrUpdateCluster(cluster)
-			}
+			initStaticClusters(clusterConfigs, clusterManager, opts.App.MaxGoroutines)
 
 			// Start CAPI RBAC watcher if available
 			if capiRBACWatcher != nil {
@@ -175,7 +145,7 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 
 			// Start the secret controller with proper controller pattern
 			if err := clusterManager.StartSecretController(ctx, opts.SecretNamespace, opts.SecretName, 1); err != nil {
-				return fmt.Errorf("failed to start secret controller: %w", err)
+				klog.Errorf("failed to start secret controller: %v", err.Error())
 			}
 
 			// Generate fake JWT for readiness probe
@@ -215,6 +185,11 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 
 // LoadClusterConfig loads and parses the cluster configuration from YAML file
 func LoadClusterConfig(path string) ([]*cluster.Cluster, error) {
+	// Verify cluster configuration file exists
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("cluster config file not found: %w", err)
+	}
+
 	var clustersList []*cluster.Cluster
 	var config struct {
 		Clusters []struct {
@@ -235,36 +210,30 @@ func LoadClusterConfig(path string) ([]*cluster.Cluster, error) {
 	}
 
 	// Convert configuration to cluster models
+	clusterNames := make(map[string]bool)
+
 	for _, clusterConfig := range config.Clusters {
+		if clusterConfig.Name == "" {
+			klog.Warningf("found empty cluster name, skipping that cluster")
+			continue
+		}
+		if _, exists := clusterNames[clusterConfig.Name]; exists {
+			klog.Warningf("duplicate cluster name: %s, skipping this cluster", clusterConfig.Name)
+			continue
+		}
+
 		clustersList = append(clustersList, &cluster.Cluster{
 			Name: clusterConfig.Name,
 			Path: clusterConfig.Kubeconfig,
 		})
+		clusterNames[clusterConfig.Name] = true
 	}
 
 	return clustersList, nil
 }
 
-// validateClusterConfig checks for basic configuration validity
-func validateClusterConfig(clusterConfig []*cluster.Cluster) error {
-	clusterNames := make(map[string]bool)
-
-	for _, cluster := range clusterConfig {
-		// Check for empty cluster name
-		if cluster.Name == "" {
-			return fmt.Errorf("cluster name cannot be empty")
-		}
-
-		// Check for duplicate cluster names
-		if _, exists := clusterNames[cluster.Name]; exists {
-			return fmt.Errorf("duplicate cluster name: %s", cluster.Name)
-		}
-		clusterNames[cluster.Name] = true
-	}
-
-	return nil
-}
-
+// getCurrentNamespace determines the current Kubernetes namespace by looking for
+// services with the kube-oidc-proxy label selector, defaults to "kube-oidc-proxy"
 func getCurrentNamespace() string {
 	ns := "kube-oidc-proxy" //set namespace to kube-oidc-proxy as conventional assumtion
 
@@ -298,4 +267,45 @@ func getCurrentNamespace() string {
 	}
 
 	return ns
+}
+
+// initStaticClusters initializes all static clusters concurrently with goroutine
+// limiting to prevent overwhelming the system with parallel cluster setups
+func initStaticClusters(clusterConfigs []*cluster.Cluster, clusterManager *clustermanager.ClusterManager, maxGoroutines int) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxGoroutines)
+
+	for _, c := range clusterConfigs {
+		wg.Add(1)
+		go func(c *cluster.Cluster) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			configFlags := &genericclioptions.ConfigFlags{
+				KubeConfig: &c.Path,
+			}
+			clientOptions := &options.ClientOptions{
+				ConfigFlags: configFlags,
+			}
+
+			// Create REST config for the cluster
+			restConfig, err := clientOptions.ToRESTConfig()
+			if err != nil {
+				klog.Warningf("failed to create REST config for cluster %s: %v", c.Name, err)
+				return
+			}
+			c.RestConfig = restConfig
+
+			// Set up the cluster in the manager
+			if err := clusterManager.ClusterSetup(c); err != nil {
+				klog.Warningf("failed to setup cluster %s: %v", c.Name, err)
+				return
+			}
+			c.IsStatic = true // Mark as statically configured
+			clusterManager.AddOrUpdateCluster(c)
+		}(c)
+	}
+	wg.Wait()
+
 }

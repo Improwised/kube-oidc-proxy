@@ -14,9 +14,11 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -50,8 +52,8 @@ type ClusterManager struct {
 	// capiRbacWatcher watches for CAPI RBAC changes and applies them to clusters
 	capiRbacWatcher *crd.CAPIRbacWatcher
 
-	// stopCh is a channel used to signal the manager to stop watching for changes
-	stopCh <-chan struct{}
+	// maxGoroutines limits concurrent cluster initialization operations
+	maxGoroutines int
 
 	// SetupFunc is an optional function called after a cluster is set up
 	// to perform additional configuration
@@ -59,6 +61,8 @@ type ClusterManager struct {
 
 	// secretController is the controller that watches for secret changes
 	secretController *SecretController
+
+	RBACAuthorizer authorizer.Interface
 }
 
 // SecretController is a Kubernetes controller that watches for changes to secrets
@@ -88,16 +92,17 @@ type SecretController struct {
 // NewClusterManager creates a new ClusterManager instance with the provided configuration.
 //
 // Parameters:
-//   - stopCh: Channel used to signal when to stop watching for cluster changes
 //   - tokenPassthroughEnabled: Whether to enable token passthrough for authentication
 //   - audiences: List of valid token audiences for token review
 //   - clustersRoleConfigMap: Map of cluster names to their RBAC configurations
 //   - capiRbacWatcher: Watcher for CAPI RBAC changes
+//   - maxGoroutines: Maximum number of concurrent goroutines for cluster operations
+//   - rbacAuthorizer: RBAC authorizer interface for permission checking
 //
 // Returns:
 //   - A new ClusterManager instance and nil error on success
 //   - nil and an error if configuration fails
-func NewClusterManager(stopCh <-chan struct{}, tokenPassthroughEnabled bool, audiences []string, clustersRoleConfigMap map[string]util.RBAC, capiRbacWatcher *crd.CAPIRbacWatcher) (*ClusterManager, error) {
+func NewClusterManager(tokenPassthroughEnabled bool, audiences []string, clustersRoleConfigMap map[string]util.RBAC, capiRbacWatcher *crd.CAPIRbacWatcher, maxGoroutines int, rbacAuthorizer authorizer.Interface) (*ClusterManager, error) {
 	// Build Kubernetes configuration for the management cluster
 	config, err := util.BuildConfiguration()
 	if err != nil {
@@ -114,11 +119,12 @@ func NewClusterManager(stopCh <-chan struct{}, tokenPassthroughEnabled bool, aud
 	return &ClusterManager{
 		clusters:                make(map[string]*cluster.Cluster),
 		clientset:               client,
-		stopCh:                  stopCh,
 		tokenPassthroughEnabled: tokenPassthroughEnabled,
 		audiences:               audiences,
 		clustersRoleConfigMap:   clustersRoleConfigMap,
 		capiRbacWatcher:         capiRbacWatcher,
+		maxGoroutines:           maxGoroutines,
+		RBACAuthorizer:          rbacAuthorizer,
 	}, nil
 }
 
@@ -398,49 +404,58 @@ func (cm *ClusterManager) updateDynamicClusters(secret *corev1.Secret) error {
 	}
 
 	// Process each cluster configuration in the secret
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, cm.maxGoroutines)
+
 	for clusterName, kubeconfigData := range secret.Data {
-		// Parse the kubeconfig data to create a REST config
-		restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
-		if err != nil {
-			klog.Errorf("Failed to create REST config for cluster %s: %v", clusterName, err)
-			continue
-		}
-
-		// Create a new cluster object
-		newCluster := &cluster.Cluster{
-			Name:       clusterName,
-			RestConfig: restConfig,
-			IsStatic:   false, // Mark as dynamic cluster
-		}
-
-		// Set up the cluster with necessary components
-		if err = cm.ClusterSetup(newCluster); err != nil {
-			klog.Errorf("Failed to set up cluster %s: %v", clusterName, err)
-			continue
-		}
-
-		// Run additional setup if a setup function is provided
-		if cm.SetupFunc != nil {
-			if err := cm.SetupFunc(newCluster); err != nil {
-				klog.Errorf("Additional setup failed for cluster %s: %v", clusterName, err)
-				continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			// Parse the kubeconfig data to create a REST config
+			restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfigData)
+			if err != nil {
+				klog.Errorf("Failed to create REST config for cluster %s: %v", clusterName, err)
+				return
 			}
-		}
 
-		// Add or update the cluster in the manager
-		cm.AddOrUpdateCluster(newCluster)
-		klog.V(4).Infof("Successfully added/updated dynamic cluster %s", clusterName)
+			// Create a new cluster object
+			newCluster := &cluster.Cluster{
+				Name:       clusterName,
+				RestConfig: restConfig,
+				IsStatic:   false, // Mark as dynamic cluster
+			}
 
-		// Update CAPI RBAC watcher if available
-		if cm.capiRbacWatcher != nil {
-			// Update watcher with the latest set of clusters
-			cm.capiRbacWatcher.UpdateClusters(cm.GetAllClusters())
+			// Set up the cluster with necessary components
+			if err = cm.ClusterSetup(newCluster); err != nil {
+				klog.Errorf("Failed to set up cluster %s: %v", clusterName, err)
+				return
+			}
 
-			// Reprocess RBAC objects for the new/updated cluster
-			cm.capiRbacWatcher.ProcessExistingRBACObjects()
-		}
+			// Run additional setup if a setup function is provided
+			if cm.SetupFunc != nil {
+				if err := cm.SetupFunc(newCluster); err != nil {
+					klog.Errorf("Additional setup failed for cluster %s: %v", clusterName, err)
+					return
+				}
+			}
+
+			// Add or update the cluster in the manager
+			cm.AddOrUpdateCluster(newCluster)
+			klog.V(4).Infof("Successfully added/updated dynamic cluster %s", clusterName)
+
+			// Update CAPI RBAC watcher if available
+			if cm.capiRbacWatcher != nil {
+				// Update watcher with the latest set of clusters
+				cm.capiRbacWatcher.UpdateClusters(cm.GetAllClusters())
+
+				// Reprocess RBAC objects for the new/updated cluster
+				cm.capiRbacWatcher.ProcessExistingRBACObjects()
+			}
+		}()
 	}
-
+	wg.Wait()
 	return nil
 }
 
@@ -496,6 +511,8 @@ func (cm *ClusterManager) RemoveCluster(name string) {
 
 	// Check if the cluster exists before removing
 	if _, exists := cm.clusters[name]; exists {
+		// Remove all permissions for this cluster from the trie
+		cm.RBACAuthorizer.RemoveClusterPermissions(name)
 		delete(cm.clusters, name)
 		klog.Infof("Removed cluster: %s", name)
 	} else {
@@ -600,9 +617,16 @@ func (cm *ClusterManager) ClusterSetup(cluster *cluster.Cluster) error {
 	}
 
 	// Load RBAC configuration into the cluster
-	if err = rbac.LoadRBAC(cluster); err != nil {
+
+	onRBACUpdate := func(rbacConfig *util.RBAC, clusterName string) {
+		cm.RBACAuthorizer.UpdatePermissionTrie(rbacConfig, clusterName)
+	}
+
+	if err = rbac.LoadRBAC(cluster, onRBACUpdate); err != nil {
 		return fmt.Errorf("failed to load RBAC configuration: %w", err)
 	}
+
+	cm.RBACAuthorizer.UpdatePermissionTrie(cluster.RBACConfig, cluster.Name)
 
 	klog.V(5).Infof("Cluster setup complete for cluster: %s", cluster.Name)
 	return nil
@@ -649,4 +673,28 @@ func (cm *ClusterManager) StopSecretController() {
 		// The queue shutdown is handled in the Run method
 		klog.V(4).Info("Secret controller will stop when context is cancelled")
 	}
+}
+
+// CheckPermission checks if a subject has permission to perform an action on a resource
+func (cm *ClusterManager) CheckPermission(groups []string, subjectName, cluster, namespace, apiGroup, resource, resourceName, verb string) bool {
+	if cm.RBACAuthorizer == nil {
+		klog.Warningf("RBACAuthorizer is nil, denying permission check for subject %s", subjectName)
+		return false
+	}
+
+	attrs := authorizer.Attributes{
+		User: &user.DefaultInfo{
+			Name:   subjectName,
+			Groups: groups,
+		},
+		Verb:              verb,
+		Cluster:           cluster,
+		Namespace:         namespace,
+		APIGroup:          apiGroup,
+		Resource:          resource,
+		ResourceName:      resourceName,
+		IsResourceRequest: true,
+	}
+
+	return cm.RBACAuthorizer.CheckPermission(attrs)
 }

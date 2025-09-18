@@ -81,9 +81,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 		_, err = f.ProxyClient.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Listing services (should be forbidden)")
+		By("Listing services (should be unauthorized)")
 		_, err = f.ProxyClient.CoreV1().Services(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 	})
 
 	It("should enforce cluster-wide RBAC from CAPIClusterRole", func() {
@@ -187,9 +187,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 		err = f.Helper().CreateCRDObject(capiRoleBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("Verifying initial forbidden access")
+		By("Verifying initial unauthorized access")
 		_, err = f.ProxyClient.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 		By("Updating CAPIRole to allow pods")
 		capiRole.Spec.CommonRoleSpec.Rules = []v1.PolicyRule{
@@ -495,7 +495,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test"}},
 			metav1.CreateOptions{},
 		)
-		Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 	})
 
 	It("should apply roles to all clusters using wildcard target", func() {
@@ -608,6 +608,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 		By("Verifying no access granted")
 		_, err = f.ProxyClient.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-		Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+		Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 	})
 })

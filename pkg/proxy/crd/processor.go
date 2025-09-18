@@ -5,13 +5,11 @@ import (
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
-	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	rbacvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 // convertUnstructured is a generic conversion helper
@@ -188,7 +186,7 @@ func determineRoleRefKindAndAPIGroup(roleRef string, ctrl *CAPIRbacWatcher, name
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIRole(capiRole *CAPIRole) {
 	targetClusters := determineTargetClusters(capiRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
-	if len(targetClusters) < 1 {
+	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping role ", capiRole.Name, " because it doesn't contain target clusters")
 		return
 	}
@@ -204,7 +202,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIRole(capiRole *CAPIRole) {
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPIClusterRole) {
 	targetClusters := determineTargetClusters(capiClusterRole.Spec.CommonRoleSpec.TargetClusters, ctrl.clusters)
-	if len(targetClusters) < 1 {
+	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping cluster role ", capiClusterRole.Name, " because it doesn't contain target clusters")
 		return
 	}
@@ -219,7 +217,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPICluster
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBinding *CAPIClusterRoleBinding) {
 	targetClusters := determineTargetClusters(capiClusterRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
-	if len(targetClusters) < 1 {
+	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping cluster role binding ", capiClusterRoleBinding.Name, " because it doesn't contain target clusters")
 		return
 	}
@@ -235,7 +233,7 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBindin
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIRoleBinding(capiRoleBinding *CAPIRoleBinding) {
 	targetClusters := determineTargetClusters(capiRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
-	if len(targetClusters) < 1 {
+	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping role binding ", capiRoleBinding.Name, " because it doesn't contain target clusters")
 		return
 	}
@@ -371,19 +369,14 @@ func (ctrl *CAPIRbacWatcher) ProcessExistingRBACObjects() {
 
 	// Rebuild authorizers for all clusters
 	ctrl.RebuildAllAuthorizers()
+	ctrl.initialProcessingComplete = true
 }
 
 // rebuildAllAuthorizers updates RBAC authorizers for all clusters.
 func (ctrl *CAPIRbacWatcher) RebuildAllAuthorizers() {
 	for _, c := range ctrl.clusters {
-		_, staticRoles := rbacvalidation.NewTestRuleResolver(
-			c.RBACConfig.Roles,
-			c.RBACConfig.RoleBindings,
-			c.RBACConfig.ClusterRoles,
-			c.RBACConfig.ClusterRoleBindings,
-		)
-		klog.V(5).Infof("Rebuilding authorizer for cluster: %s", c.Name)
-		c.Authorizer = util.NewAuthorizer(staticRoles)
+		ctrl.onRBACUpdate(c.RBACConfig, c.Name)
+
 	}
 }
 

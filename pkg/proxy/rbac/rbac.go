@@ -5,13 +5,12 @@ import (
 	"fmt"
 
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
-	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	apisv1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/klog/v2"
-	rbacvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 var defalutRole = map[string]v1.PolicyRule{
@@ -42,16 +41,16 @@ var defalutRole = map[string]v1.PolicyRule{
 	},
 }
 
-func LoadRBAC(cluster *cluster.Cluster) error {
+func LoadRBAC(cluster *cluster.Cluster, onRBACUpdate crd.OnRBACUpdateFunc) error {
 
 	// First load existing RBAC resources from the cluster
-	err := loadExistingRBAC(cluster)
+	err := loadExistingRBAC(cluster, onRBACUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to load existing RBAC: %v", err)
 	}
 
 	// Set up watchers for RBAC resources
-	err = setupRBACWatchers(cluster)
+	err = setupRBACWatchers(cluster, onRBACUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to setup RBAC watchers: %v", err)
 	}
@@ -160,14 +159,14 @@ func LoadRBAC(cluster *cluster.Cluster) error {
 
 			}
 
-			updateAuthorizer(cluster)
+			onRBACUpdate(cluster.RBACConfig, cluster.Name)
 
 		}
 	}()
 	return nil
 }
 
-func loadExistingRBAC(cluster *cluster.Cluster) error {
+func loadExistingRBAC(cluster *cluster.Cluster, onRBACUpdate crd.OnRBACUpdateFunc) error {
 	// List existing ClusterRoles
 	clusterRoles, err := cluster.Kubeclient.RbacV1().ClusterRoles().List(context.Background(), apisv1.ListOptions{})
 	if err != nil {
@@ -215,12 +214,12 @@ func loadExistingRBAC(cluster *cluster.Cluster) error {
 
 	}
 
-	updateAuthorizer(cluster)
+	onRBACUpdate(cluster.RBACConfig, cluster.Name)
 
 	return nil
 }
 
-func setupRBACWatchers(cluster *cluster.Cluster) error {
+func setupRBACWatchers(cluster *cluster.Cluster, onRBACUpdate crd.OnRBACUpdateFunc) error {
 	// Watch ClusterRoles
 	watchClusterRoles, err := cluster.Kubeclient.RbacV1().ClusterRoles().Watch(context.Background(), apisv1.ListOptions{})
 	if err != nil {
@@ -266,7 +265,7 @@ func setupRBACWatchers(cluster *cluster.Cluster) error {
 					}
 				}
 			}
-			updateAuthorizer(cluster)
+			onRBACUpdate(cluster.RBACConfig, cluster.Name)
 		}
 	}()
 
@@ -297,7 +296,7 @@ func setupRBACWatchers(cluster *cluster.Cluster) error {
 					}
 				}
 			}
-			updateAuthorizer(cluster)
+			onRBACUpdate(cluster.RBACConfig, cluster.Name)
 		}
 	}()
 
@@ -327,10 +326,10 @@ func setupRBACWatchers(cluster *cluster.Cluster) error {
 				}
 
 				// Start Role watcher for this namespace
-				go watchNamespaceRoles(watchRoles, cluster)
+				go watchNamespaceRoles(watchRoles, cluster, onRBACUpdate)
 
 				// Start RoleBinding watcher for this namespace
-				go watchNamespaceRoleBindings(watchRoleBindings, cluster)
+				go watchNamespaceRoleBindings(watchRoleBindings, cluster, onRBACUpdate)
 			}
 		}
 	}()
@@ -338,7 +337,7 @@ func setupRBACWatchers(cluster *cluster.Cluster) error {
 	return nil
 }
 
-func watchNamespaceRoles(watchRoles watch.Interface, cluster *cluster.Cluster) {
+func watchNamespaceRoles(watchRoles watch.Interface, cluster *cluster.Cluster, onRBACUpdate crd.OnRBACUpdateFunc) {
 	for event := range watchRoles.ResultChan() {
 		role, ok := event.Object.(*v1.Role)
 		if !ok {
@@ -364,11 +363,11 @@ func watchNamespaceRoles(watchRoles watch.Interface, cluster *cluster.Cluster) {
 				}
 			}
 		}
-		updateAuthorizer(cluster)
+		onRBACUpdate(cluster.RBACConfig, cluster.Name)
 	}
 }
 
-func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *cluster.Cluster) {
+func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *cluster.Cluster, onRBACUpdate crd.OnRBACUpdateFunc) {
 	for event := range watchRoleBindings.ResultChan() {
 		rb, ok := event.Object.(*v1.RoleBinding)
 		if !ok {
@@ -394,16 +393,6 @@ func watchNamespaceRoleBindings(watchRoleBindings watch.Interface, cluster *clus
 				}
 			}
 		}
-		updateAuthorizer(cluster)
+		onRBACUpdate(cluster.RBACConfig, cluster.Name)
 	}
-}
-
-func updateAuthorizer(cluster *cluster.Cluster) {
-	_, staticRoles := rbacvalidation.NewTestRuleResolver(
-		cluster.RBACConfig.Roles,
-		cluster.RBACConfig.RoleBindings,
-		cluster.RBACConfig.ClusterRoles,
-		cluster.RBACConfig.ClusterRoleBindings,
-	)
-	cluster.Authorizer = util.NewAuthorizer(staticRoles)
 }

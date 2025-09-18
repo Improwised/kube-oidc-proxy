@@ -177,12 +177,29 @@ func TestRebuildAllAuthorizers(t *testing.T) {
 			}},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
+
+	// Track if onRBACUpdate callback is called
+	var callbackCalled bool
+	var callbackClusterName string
+	var callbackRBACConfig *util.RBAC
+
+	onRBACUpdate := func(rbacConfig *util.RBAC, clusterName string) {
+		callbackCalled = true
+		callbackClusterName = clusterName
+		callbackRBACConfig = rbacConfig
+	}
+
+	watcher := &CAPIRbacWatcher{
+		clusters:     []*cluster.Cluster{testCluster},
+		onRBACUpdate: onRBACUpdate,
+	}
 
 	watcher.RebuildAllAuthorizers()
 
-	// Verify authorizer is created
-	assert.NotNil(t, testCluster.Authorizer)
+	// Verify onRBACUpdate callback was called with correct parameters
+	assert.True(t, callbackCalled)
+	assert.Equal(t, "cluster1", callbackClusterName)
+	assert.Equal(t, testCluster.RBACConfig, callbackRBACConfig)
 }
 
 func TestApplyToClusters(t *testing.T) {

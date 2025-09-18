@@ -7,9 +7,7 @@ import (
 	"strings"
 
 	authuser "k8s.io/apiserver/pkg/authentication/user"
-	genericapifilters "k8s.io/apiserver/pkg/endpoints/filters"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubeapiserver/admission/exclusion"
@@ -36,11 +34,11 @@ func (p *Proxy) withHandlers(handler http.Handler) http.Handler {
 	return handler
 }
 
+// withCustomAuthorization adds custom authorization middleware using our own RBACAuthorizer
 func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 
 		clusterName := p.GetClusterName(req.URL.Path)
-		ClusterConfig := p.clusterManager.GetCluster(clusterName)
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, "/"+clusterName)
 
 		reqInfo, err := p.requestInfo.NewRequestInfo(req)
@@ -63,16 +61,23 @@ func (p *Proxy) WithRBACHandler(handler http.Handler) http.Handler {
 				return
 			}
 		}
-
-		// add request info into context
 		req = req.WithContext(context.WithRequestInfo(req.Context(), reqInfo))
-
-		// validate resource request
 		if reqInfo.IsResourceRequest {
-			authHandler := genericapifilters.WithAuthorization(handler, ClusterConfig.Authorizer, scheme.Codecs)
-			req.URL.Path = "/" + clusterName + req.URL.Path
-			authHandler.ServeHTTP(rw, req)
-			return
+
+			user, ok := genericapirequest.UserFrom(req.Context())
+			if !ok {
+				p.handleError(rw, req, errUnauthorized)
+				return
+			}
+
+			// Check permission using our custom authorizer
+			authorized := p.clusterManager.CheckPermission(user.GetGroups(), user.GetName(), clusterName, reqInfo.Namespace, reqInfo.APIGroup, reqInfo.Resource, reqInfo.Name, reqInfo.Verb)
+
+			if !authorized {
+				klog.Infof("user %s not authorized to %s %s in namespace %s", user.GetName(), reqInfo.Verb, reqInfo.Resource, reqInfo.Namespace)
+				p.handleError(rw, req, errUnauthorized)
+				return
+			}
 		}
 
 		// Eg. non resource request

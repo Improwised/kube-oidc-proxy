@@ -13,16 +13,21 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// OnRBACUpdateFunc defines a function type for RBAC update callbacks
+type OnRBACUpdateFunc func(rbacConfig *util.RBAC, clusterName string)
+
 type CAPIRbacWatcher struct {
 	CAPIClusterRoleInformer        cache.SharedIndexInformer
 	CAPIRoleInformer               cache.SharedIndexInformer
 	CAPIClusterRoleBindingInformer cache.SharedIndexInformer
 	CAPIRoleBindingInformer        cache.SharedIndexInformer
 	clusters                       []*cluster.Cluster
+	initialProcessingComplete      bool
+	onRBACUpdate                   OnRBACUpdateFunc
 	mu                             sync.RWMutex
 }
 
-func NewCAPIRbacWatcher(clusters []*cluster.Cluster) (*CAPIRbacWatcher, error) {
+func NewCAPIRbacWatcher(clusters []*cluster.Cluster, onRBACUpdate OnRBACUpdateFunc) (*CAPIRbacWatcher, error) {
 
 	clusterConfig, err := util.BuildConfiguration()
 	if err != nil {
@@ -48,6 +53,7 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster) (*CAPIRbacWatcher, error) {
 		CAPIRoleBindingInformer:        capiRoleBindingInformer,
 		CAPIClusterRoleBindingInformer: capiClusterRoleBindingInformer,
 		clusters:                       clusters,
+		onRBACUpdate:                   onRBACUpdate,
 	}
 
 	watcher.RegisterEventHandlers()
@@ -73,6 +79,10 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 	// Register event handlers for CAPIRole
 	w.CAPIRoleInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			if !w.initialProcessingComplete {
+				klog.V(10).Infof("Skipping CAPIRole add event during initial processing")
+				return
+			}
 			capiRole, err := ConvertUnstructured[CAPIRole](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRole: %v", err)
@@ -119,6 +129,10 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 	// Register event handlers for CAPIClusterRole
 	w.CAPIClusterRoleInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			if !w.initialProcessingComplete {
+				klog.V(10).Infof("Skipping CAPIClusterRole add event during initial processing")
+				return
+			}
 			capiClusterRole, err := ConvertUnstructured[CAPIClusterRole](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRole: %v", err)
@@ -165,6 +179,10 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 	// Register event handlers for CAPIRoleBinding
 	w.CAPIRoleBindingInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			if !w.initialProcessingComplete {
+				klog.V(10).Infof("Skipping CAPIRoleBinding add event during initial processing")
+				return
+			}
 			capiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRoleBinding: %v", err)
@@ -211,6 +229,10 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 	// Register event handlers for CAPIClusterRoleBinding
 	w.CAPIClusterRoleBindingInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
+			if !w.initialProcessingComplete {
+				klog.V(10).Infof("Skipping CAPIClusterRoleBinding add event during initial processing")
+				return
+			}
 			capiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRoleBinding: %v", err)
