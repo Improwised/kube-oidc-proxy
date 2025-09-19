@@ -375,9 +375,9 @@ users:
 				return err
 			}, 15*time.Second).Should(Succeed())
 
-			By("Verifying forbidden access to services")
+			By("Verifying unauthorized access to services")
 			_, err = client.CoreV1().Services(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-			Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+			Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 		})
 
 		It("should apply cluster-specific RBAC rules", func() {
@@ -450,9 +450,9 @@ users:
 				return err
 			}, 15*time.Second).Should(Succeed())
 
-			By("Verifying forbidden access to pods")
+			By("Verifying unauthorized access to pods")
 			_, err = client.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-			Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+			Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 			By("Verifying no access in default cluster")
 			defaultConfig := f.NewProxyRestConfig()
@@ -461,7 +461,7 @@ users:
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = defaultClient.CoreV1().ConfigMaps(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-			Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+			Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 		})
 
 		It("should handle RBAC updates for existing dynamic clusters", func() {
@@ -475,14 +475,14 @@ users:
 
 			time.Sleep(3 * time.Second)
 
-			By("Verifying initial forbidden access")
+			By("Verifying initial unautho access")
 			config := f.NewProxyRestConfig()
 			config.Host = config.Host + "/rbac-update-cluster"
 			client, err := kubernetes.NewForConfig(config)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = client.CoreV1().Secrets(f.Namespace.Name).List(context.TODO(), metav1.ListOptions{})
-			Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
+			Expect(k8sErrors.IsUnauthorized(err)).To(BeTrue())
 
 			By("Creating RBAC rules")
 			role := &crd.CAPIClusterRole{
