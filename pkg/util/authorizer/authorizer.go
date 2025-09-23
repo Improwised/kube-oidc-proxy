@@ -55,41 +55,43 @@ func (a *RBACAuthorizer) UpdatePermissionTrie(rbacConfig *util.RBAC, clusterName
 
 	// Combine rules from ClusterRoles that include other roles.
 	resolvedClusterRoles := resolveAggregatedRoles(rbacConfig.ClusterRoles)
+	clusterRolesMap := make(map[string]*v1.ClusterRole, len(resolvedClusterRoles))
+	for _, cr := range resolvedClusterRoles {
+		clusterRolesMap[cr.Name] = cr
+	}
 
-	// Make RoleBindings easy to look up.
-	roleBindingSubjects := make(map[string][]v1.Subject)
+	rolesMap := make(map[string]*v1.Role, len(rbacConfig.Roles))
+	for _, r := range rbacConfig.Roles {
+		rolesMap[r.Namespace+"/"+r.Name] = r
+	}
+
+	// Process RoleBindings
 	for _, binding := range rbacConfig.RoleBindings {
+		// A RoleBinding can reference a Role or a ClusterRole.
+		// If it references a ClusterRole, the permissions are granted only within the RoleBinding's namespace.
 		if binding.RoleRef.Kind == "Role" {
-			key := "Role/" + binding.Namespace + "/" + binding.RoleRef.Name
-			roleBindingSubjects[key] = append(roleBindingSubjects[key], binding.Subjects...)
-		}
-	}
-
-	// Make ClusterRoleBindings easy to look up.
-	clusterRoleBindingSubjects := make(map[string][]v1.Subject)
-	for _, binding := range rbacConfig.ClusterRoleBindings {
-		if binding.RoleRef.Kind == "ClusterRole" {
-			key := "ClusterRole/" + binding.RoleRef.Name
-			clusterRoleBindingSubjects[key] = append(clusterRoleBindingSubjects[key], binding.Subjects...)
-		}
-	}
-
-	// Add rules from each Role.
-	for _, role := range rbacConfig.Roles {
-		key := "Role/" + role.Namespace + "/" + role.Name
-		if subjects, found := roleBindingSubjects[key]; found {
-			for _, subject := range subjects {
-				a.addRulesForSubject(subject, clusterName, role.Namespace, role.Rules)
+			if role, found := rolesMap[binding.Namespace+"/"+binding.RoleRef.Name]; found {
+				for _, subject := range binding.Subjects {
+					a.addRulesForSubject(subject, clusterName, binding.Namespace, role.Rules)
+				}
+			}
+		} else if binding.RoleRef.Kind == "ClusterRole" {
+			if clusterRole, found := clusterRolesMap[binding.RoleRef.Name]; found {
+				for _, subject := range binding.Subjects {
+					a.addRulesForSubject(subject, clusterName, binding.Namespace, clusterRole.Rules)
+				}
 			}
 		}
 	}
 
-	// Add rules from each ClusterRole.
-	for _, clusterRole := range resolvedClusterRoles {
-		key := "ClusterRole/" + clusterRole.Name
-		if subjects, found := clusterRoleBindingSubjects[key]; found {
-			for _, subject := range subjects {
-				a.addRulesForSubject(subject, clusterName, "", clusterRole.Rules)
+	// Process ClusterRoleBindings
+	for _, binding := range rbacConfig.ClusterRoleBindings {
+		if binding.RoleRef.Kind == "ClusterRole" {
+			if clusterRole, found := clusterRolesMap[binding.RoleRef.Name]; found {
+				for _, subject := range binding.Subjects {
+					// Grant ClusterRole permissions cluster-wide
+					a.addRulesForSubject(subject, clusterName, "", clusterRole.Rules)
+				}
 			}
 		}
 	}
