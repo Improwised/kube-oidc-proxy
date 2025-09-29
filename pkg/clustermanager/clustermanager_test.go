@@ -6,18 +6,33 @@ import (
 
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+// newTestClusterManager creates a properly initialized ClusterManager for testing
+func newTestClusterManager() *ClusterManager {
+	fakeClient := fake.NewSimpleClientset()
+	rbacAuthorizer := authorizer.NewRBACAuthorizer()
+
+	return &ClusterManager{
+		clusters:                make(map[string]*cluster.Cluster),
+		clientset:               fakeClient,
+		tokenPassthroughEnabled: false,
+		audiences:               []string{},
+		clustersRoleConfigMap:   make(map[string]util.RBAC),
+		RBACAuthorizer:          rbacAuthorizer,
+		maxGoroutines:           10,
+	}
+}
+
 // TestAddAndRetrieveCluster tests adding a cluster and retrieving it
 func TestAddAndRetrieveCluster(t *testing.T) {
 	// Create a ClusterManager
-	cm := &ClusterManager{
-		clusters: make(map[string]*cluster.Cluster),
-	}
+	cm := newTestClusterManager()
 
 	// Create a test cluster
 	testCluster := &cluster.Cluster{
@@ -39,9 +54,7 @@ func TestAddAndRetrieveCluster(t *testing.T) {
 // TestUpdateExistingCluster tests updating an existing cluster
 func TestUpdateExistingCluster(t *testing.T) {
 	// Create a ClusterManager
-	cm := &ClusterManager{
-		clusters: make(map[string]*cluster.Cluster),
-	}
+	cm := newTestClusterManager()
 
 	// Create a test cluster
 	originalCluster := &cluster.Cluster{
@@ -74,9 +87,7 @@ func TestUpdateExistingCluster(t *testing.T) {
 // TestRemoveCluster tests removing a cluster
 func TestRemoveCluster(t *testing.T) {
 	// Create a ClusterManager
-	cm := &ClusterManager{
-		clusters: make(map[string]*cluster.Cluster),
-	}
+	cm := newTestClusterManager()
 
 	// Create a test cluster
 	testCluster := &cluster.Cluster{
@@ -100,9 +111,7 @@ func TestRemoveCluster(t *testing.T) {
 // TestGetAllClusters tests retrieving all clusters
 func TestGetAllClusters(t *testing.T) {
 	// Create a ClusterManager
-	cm := &ClusterManager{
-		clusters: make(map[string]*cluster.Cluster),
-	}
+	cm := newTestClusterManager()
 
 	// Create test clusters
 	cluster1 := &cluster.Cluster{
@@ -140,21 +149,9 @@ func TestGetAllClusters(t *testing.T) {
 
 // TestHandleInvalidKubeconfig tests handling invalid kubeconfig
 func TestHandleInvalidKubeconfig(t *testing.T) {
-	// Create a stop channel for the ClusterManager
-	stopCh := make(chan struct{})
-	defer close(stopCh)
 
-	// Create a fake Kubernetes clientset
-	fakeClient := fake.NewSimpleClientset()
-
-	// Create a ClusterManager with the fake client
-	cm := &ClusterManager{
-		clusters:                make(map[string]*cluster.Cluster),
-		clientset:               fakeClient,
-		stopCh:                  stopCh,
-		tokenPassthroughEnabled: false,
-		clustersRoleConfigMap:   make(map[string]util.RBAC),
-	}
+	// Create a ClusterManager
+	cm := newTestClusterManager()
 
 	// Create a test secret with invalid kubeconfig data
 	secret := &corev1.Secret{
@@ -177,21 +174,9 @@ func TestHandleInvalidKubeconfig(t *testing.T) {
 
 // TestStaticClusterPersistence tests that static clusters persist when dynamic clusters are updated
 func TestStaticClusterPersistence(t *testing.T) {
-	// Create a stop channel for the ClusterManager
-	stopCh := make(chan struct{})
-	defer close(stopCh)
 
-	// Create a fake Kubernetes clientset
-	fakeClient := fake.NewSimpleClientset()
-
-	// Create a ClusterManager with the fake client
-	cm := &ClusterManager{
-		clusters:                make(map[string]*cluster.Cluster),
-		clientset:               fakeClient,
-		stopCh:                  stopCh,
-		tokenPassthroughEnabled: false,
-		clustersRoleConfigMap:   make(map[string]util.RBAC),
-	}
+	// Create a ClusterManager
+	cm := newTestClusterManager()
 
 	// Add a static cluster
 	staticCluster := &cluster.Cluster{
@@ -247,9 +232,7 @@ func TestStaticClusterPersistence(t *testing.T) {
 // TestRemoveDynamicClusters tests removing dynamic clusters
 func TestRemoveDynamicClusters(t *testing.T) {
 	// Create a ClusterManager
-	cm := &ClusterManager{
-		clusters: make(map[string]*cluster.Cluster),
-	}
+	cm := newTestClusterManager()
 
 	// Add some clusters
 	cluster1 := &cluster.Cluster{
@@ -281,17 +264,9 @@ func TestRemoveDynamicClusters(t *testing.T) {
 
 // TestNewSecretController tests creating a new SecretController
 func TestNewSecretController(t *testing.T) {
-	// Create a fake Kubernetes client
-	fakeClient := fake.NewSimpleClientset()
 
-	// Create a ClusterManager with the fake client
-	cm := &ClusterManager{
-		clusters:                make(map[string]*cluster.Cluster),
-		clientset:               fakeClient,
-		tokenPassthroughEnabled: false,
-		audiences:               []string{},
-		clustersRoleConfigMap:   make(map[string]util.RBAC),
-	}
+	// Create a ClusterManager
+	cm := newTestClusterManager()
 
 	// Test creating a SecretController
 	controller, err := NewSecretController(cm, "test-namespace", "test-secret")

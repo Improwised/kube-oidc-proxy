@@ -7,6 +7,7 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/rbac/v1"
@@ -177,12 +178,58 @@ func TestRebuildAllAuthorizers(t *testing.T) {
 			}},
 		},
 	}
-	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
+
+	// Create a mock authorizer to capture calls to UpdatePermissionTrie
+	type updateCall struct {
+		rbacConfig  *util.RBAC
+		clusterName string
+	}
+	var calls []updateCall
+
+	// Create a mock authorizer
+	mockAuthorizer := &mockAuthorizer{
+		updatePermissionTrieFunc: func(rbacConfig *util.RBAC, clusterName string) {
+			calls = append(calls, updateCall{rbacConfig, clusterName})
+		},
+	}
+
+	watcher := &CAPIRbacWatcher{
+		clusters:   []*cluster.Cluster{testCluster},
+		authorizer: mockAuthorizer,
+	}
 
 	watcher.RebuildAllAuthorizers()
 
-	// Verify authorizer is created
-	assert.NotNil(t, testCluster.Authorizer)
+	// Verify UpdatePermissionTrie was called with correct parameters
+	assert.Len(t, calls, 1)
+	assert.Equal(t, testCluster.RBACConfig, calls[0].rbacConfig)
+	assert.Equal(t, "cluster1", calls[0].clusterName)
+}
+
+// mockAuthorizer implements authorizer.Interface for testing
+type mockAuthorizer struct {
+	updatePermissionTrieFunc     func(rbacConfig *util.RBAC, clusterName string)
+	checkPermissionFunc          func(attrs authorizer.Attributes) bool
+	removeClusterPermissionsFunc func(cluster string)
+}
+
+func (m *mockAuthorizer) UpdatePermissionTrie(rbacConfig *util.RBAC, clusterName string) {
+	if m.updatePermissionTrieFunc != nil {
+		m.updatePermissionTrieFunc(rbacConfig, clusterName)
+	}
+}
+
+func (m *mockAuthorizer) CheckPermission(attrs authorizer.Attributes) bool {
+	if m.checkPermissionFunc != nil {
+		return m.checkPermissionFunc(attrs)
+	}
+	return false
+}
+
+func (m *mockAuthorizer) RemoveClusterPermissions(cluster string) {
+	if m.removeClusterPermissionsFunc != nil {
+		m.removeClusterPermissionsFunc(cluster)
+	}
 }
 
 func TestApplyToClusters(t *testing.T) {

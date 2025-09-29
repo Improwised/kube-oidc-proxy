@@ -5,13 +5,11 @@ import (
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
-	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
-	rbacvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 // convertUnstructured is a generic conversion helper
@@ -377,14 +375,8 @@ func (ctrl *CAPIRbacWatcher) ProcessExistingRBACObjects() {
 // rebuildAllAuthorizers updates RBAC authorizers for all clusters.
 func (ctrl *CAPIRbacWatcher) RebuildAllAuthorizers() {
 	for _, c := range ctrl.clusters {
-		_, staticRoles := rbacvalidation.NewTestRuleResolver(
-			c.RBACConfig.Roles,
-			c.RBACConfig.RoleBindings,
-			c.RBACConfig.ClusterRoles,
-			c.RBACConfig.ClusterRoleBindings,
-		)
-		klog.V(5).Infof("Rebuilding authorizer for cluster: %s", c.Name)
-		c.Authorizer = util.NewAuthorizer(staticRoles)
+		ctrl.authorizer.UpdatePermissionTrie(c.RBACConfig, c.Name)
+
 	}
 }
 
