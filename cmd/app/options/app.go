@@ -11,15 +11,31 @@ import (
 )
 
 type KubeOIDCProxyOptions struct {
-	Cluster              Cluster
-	DisableImpersonation bool
-	ReadinessProbePort   int
-	MaxGoroutines        int
+	// The port to listen on for incoming webhooks. Default to 8443.
+	WebhookPort int
+	// The port to listen on for readiness probes. Default to 8080.
+	ReadinessProbePort int
 
+	// Token passthrough options
+	TokenPassthrough TokenPassthroughOptions
+
+	// Extra header options
+	ExtraHeaderOptions ExtraHeaderOptions
+
+	// Disable impersonation
+	DisableImpersonation bool
+
+	// Flush interval for proxy
 	FlushInterval time.Duration
 
-	ExtraHeaderOptions ExtraHeaderOptions
-	TokenPassthrough   TokenPassthroughOptions
+	// Cluster options
+	Cluster Cluster
+
+	// Max goroutines for cluster manager
+	MaxGoroutines int
+
+	// JITBindingCleanupInterval is the interval at which the controller cleans up expired JIT bindings.
+	JITBindingCleanupInterval time.Duration
 }
 
 type TokenPassthroughOptions struct {
@@ -52,6 +68,7 @@ func (k *KubeOIDCProxyOptions) AddFlags(fs *pflag.FlagSet) *KubeOIDCProxyOptions
 
 	fs.IntVar(&k.MaxGoroutines, "max-goroutines", 10,
 		"Maximum number of concurrent goroutines for cluster initialization")
+	fs.DurationVar(&k.JITBindingCleanupInterval, "jit-binding-cleanup-interval", time.Minute, "The interval at which the controller cleans up expired JIT bindings.")
 
 	fs.DurationVar(&k.FlushInterval, "flush-interval", time.Millisecond*50,
 		"Specifies the interval to flush request bodies. If 0ms, "+

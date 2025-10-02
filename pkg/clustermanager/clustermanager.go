@@ -332,7 +332,7 @@ func (sc *SecretController) syncHandler(ctx context.Context, key interface{}) er
 		if !exists {
 			// Secret was deleted
 			logger.V(4).Info("Secret was deleted, removing associated clusters", "key", v)
-			sc.handleSecretDeletion(v)
+			sc.handleSecretDeletion()
 			return nil
 		}
 		secret = obj.(*corev1.Secret)
@@ -359,7 +359,7 @@ func (sc *SecretController) syncHandler(ctx context.Context, key interface{}) er
 //
 // Parameters:
 //   - key: Object key of the deleted secret
-func (sc *SecretController) handleSecretDeletion(key string) {
+func (sc *SecretController) handleSecretDeletion() {
 	// Since the secret is deleted, we need to remove all dynamic clusters
 	// We can't get the secret data anymore, so we remove all non-static clusters
 	existingClusters := sc.clusterManager.GetAllClusters()

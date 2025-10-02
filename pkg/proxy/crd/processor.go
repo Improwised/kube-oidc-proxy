@@ -134,6 +134,7 @@ func createClusterRoleBinding(clusterRoleBinding *CAPIClusterRoleBinding) []*v1.
 }
 
 func createRoleBinding(roleBinding *CAPIRoleBinding, namespace string, ctrl *CAPIRbacWatcher) []*v1.RoleBinding {
+
 	subjects := convertSubjects(roleBinding.Spec.Subjects)
 	roleBindings := make([]*v1.RoleBinding, 0, len(roleBinding.Spec.RoleRef))
 

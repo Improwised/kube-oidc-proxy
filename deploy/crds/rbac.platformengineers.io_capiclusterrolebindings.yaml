@@ -40,6 +40,9 @@ spec:
           spec:
             description: CAPIClusterRoleBindingSpec defines the desired state of CAPIClusterRoleBinding.
             properties:
+              durationMinutes:
+                format: int32
+                type: integer
               roleRef:
                 items:
                   type: string

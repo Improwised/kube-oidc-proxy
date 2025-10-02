@@ -39,6 +39,9 @@ spec:
           spec:
             description: CAPIRoleBindingSpec defines the desired state of CAPIRoleBinding.
             properties:
+              durationMinutes:
+                format: int32
+                type: integer
               roleRef:
                 items:
                   type: string

@@ -25,7 +25,6 @@ func TestConvertUnstructured_Success(t *testing.T) {
 		},
 		Spec: CAPIRoleSpec{
 			CommonRoleSpec: CommonRoleSpec{
-				Name:  "test-role",
 				Rules: []v1.PolicyRule{{Verbs: []string{"get"}}},
 			},
 			TargetNamespaces: []string{"default"},

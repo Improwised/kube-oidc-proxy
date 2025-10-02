@@ -1,13 +1,17 @@
 package crd
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/tools/cache"
@@ -23,9 +27,11 @@ type CAPIRbacWatcher struct {
 	initialProcessingComplete      bool
 	authorizer                     authorizer.Interface
 	mu                             sync.RWMutex
+	dynamicClient                  dynamic.Interface
+	cleanupInterval                time.Duration
 }
 
-func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface) (*CAPIRbacWatcher, error) {
+func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface, cleanupInterval time.Duration) (*CAPIRbacWatcher, error) {
 
 	clusterConfig, err := util.BuildConfiguration()
 	if err != nil {
@@ -45,6 +51,10 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface) 
 	capiClusterRoleInformer := factory.ForResource(CAPIClusterRoleGVR).Informer()
 	capiClusterRoleBindingInformer := factory.ForResource(CAPIClusterRoleBindingGVR).Informer()
 
+	if cleanupInterval <= 0 {
+		cleanupInterval = time.Minute
+	}
+
 	watcher := &CAPIRbacWatcher{
 		CAPIRoleInformer:               capiRoleInformer,
 		CAPIClusterRoleInformer:        capiClusterRoleInformer,
@@ -52,6 +62,8 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface) 
 		CAPIClusterRoleBindingInformer: capiClusterRoleBindingInformer,
 		clusters:                       clusters,
 		authorizer:                     auth,
+		dynamicClient:                  clusterClient,
+		cleanupInterval:                cleanupInterval,
 	}
 
 	watcher.RegisterEventHandlers()
@@ -71,6 +83,88 @@ func (w *CAPIRbacWatcher) Start(stopCh <-chan struct{}) {
 		w.CAPIRoleBindingInformer.HasSynced,
 		w.CAPIClusterRoleBindingInformer.HasSynced,
 	)
+	go w.startExpiredBindingsCleanup(stopCh)
+}
+
+func (w *CAPIRbacWatcher) startExpiredBindingsCleanup(stopCh <-chan struct{}) {
+	klog.Info("Starting expired bindings cleanup routine")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-stopCh
+		cancel()
+	}()
+
+	ticker := time.NewTicker(w.cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			w.cleanupExpiredBindings(ctx)
+		case <-stopCh:
+			klog.Info("Stopping expired bindings cleanup routine")
+			return
+		}
+	}
+}
+
+func (w *CAPIRbacWatcher) cleanupExpiredBindings(ctx context.Context) {
+	klog.V(4).Info("Running cleanup for expired bindings")
+
+	// CAPIClusterRoleBindings
+	clusterRoleBindings := w.CAPIClusterRoleBindingInformer.GetStore().List()
+	for _, obj := range clusterRoleBindings {
+		binding, err := ConvertUnstructured[CAPIClusterRoleBinding](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIClusterRoleBinding during cleanup check: %v", err)
+			continue
+		}
+
+		if util.IsExpired(binding.CreationTimestamp.Time, binding.Spec.DurationMinutes) {
+			go w.deleteBinding(ctx, CAPIClusterRoleBindingGVR, "", binding.Name)
+		}
+	}
+
+	// CAPIRoleBindings
+	roleBindings := w.CAPIRoleBindingInformer.GetStore().List()
+	for _, obj := range roleBindings {
+		binding, err := ConvertUnstructured[CAPIRoleBinding](obj)
+		if err != nil {
+			klog.Errorf("Failed to convert CAPIRoleBinding during cleanup check: %v", err)
+			continue
+		}
+
+		if util.IsExpired(binding.CreationTimestamp.Time, binding.Spec.DurationMinutes) {
+			go w.deleteBinding(ctx, CAPIRoleBindingGVR, "", binding.Name)
+		}
+	}
+}
+
+func (w *CAPIRbacWatcher) deleteBinding(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) {
+	logName := name
+	if namespace != "" {
+		logName = namespace + "/" + name
+	}
+	klog.V(2).Infof("Deleting expired binding %s", logName)
+
+	var err error
+	if namespace == "" {
+		err = w.dynamicClient.Resource(gvr).Delete(ctx, name, metav1.DeleteOptions{})
+	} else {
+		err = w.dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	}
+
+	if err != nil {
+		// Don't log "not found" errors, as the binding might have been deleted by another process
+		// or in a previous reconciliation loop.
+		if !apierrors.IsNotFound(err) {
+			klog.Errorf("Failed to delete expired binding %s: %v", logName, err)
+		}
+	} else {
+		klog.V(2).Infof("Successfully deleted expired binding %s", logName)
+	}
 }
 
 func (w *CAPIRbacWatcher) RegisterEventHandlers() {

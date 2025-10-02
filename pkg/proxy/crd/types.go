@@ -9,7 +9,6 @@ import (
 
 // CommonRoleSpec defines shared fields for role specifications.
 type CommonRoleSpec struct {
-	Name           string          `json:"name"`
 	TargetClusters []string        `json:"targetClusters,omitempty"`
 	Rules          []v1.PolicyRule `json:"rules,omitempty"`
 }
@@ -21,10 +20,10 @@ type Subject struct {
 
 // CommonBindingSpec defines shared fields for role binding specifications.
 type CommonBindingSpec struct {
-	TargetClusters []string  `json:"targetClusters,omitempty"`
-	Name           string    `json:"name"`
-	RoleRef        []string  `json:"roleRef"`
-	Subjects       []Subject `json:"subjects"`
+	TargetClusters  []string  `json:"targetClusters,omitempty"`
+	RoleRef         []string  `json:"roleRef"`
+	Subjects        []Subject `json:"subjects"`
+	DurationMinutes *int32    `json:"durationMinutes,omitempty"`
 }
 
 // CAPIClusterRoleSpec defines the desired state of CAPIClusterRole.
