@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
+	typesv1 "github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd/types/v1"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +23,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should enforce RBAC rules from CAPIRole and CAPIRoleBinding", func() {
 		By("Creating CAPIRole allowing GET pods")
-		capiRole := &crd.CAPIRole{
+		capiRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -32,9 +32,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "test-pod-reader",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "pod-reader",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					TargetClusters: []string{constants.ClusterName},
 					Rules: []v1.PolicyRule{
 						{
@@ -47,11 +46,11 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Creating CAPIRoleBinding for group-1")
-		capiRoleBinding := &crd.CAPIRoleBinding{
+		capiRoleBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -60,17 +59,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "test-pod-reader-binding",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"test-pod-reader"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err = f.Helper().CreateCRDObject(capiRoleBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err = f.Helper().CreateCRDObject(capiRoleBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for RBAC reconciliation")
@@ -88,7 +86,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should enforce cluster-wide RBAC from CAPIClusterRole", func() {
 		By("Creating CAPIClusterRole allowing node access")
-		capiClusterRole := &crd.CAPIClusterRole{
+		capiClusterRole := &typesv1.CAPIClusterRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIClusterRole",
@@ -96,9 +94,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-node-reader",
 			},
-			Spec: crd.CAPIClusterRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "node-reader",
+			Spec: typesv1.CAPIClusterRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					TargetClusters: []string{constants.ClusterName},
 					Rules: []v1.PolicyRule{
 						{
@@ -110,11 +107,11 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiClusterRole, crd.CAPIClusterRoleGVR, "")
+		err := f.Helper().CreateCRDObject(capiClusterRole, constants.CAPIClusterRoleGVR, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Creating CAPIClusterRoleBinding for group-1")
-		capiClusterRoleBinding := &crd.CAPIClusterRoleBinding{
+		capiClusterRoleBinding := &typesv1.CAPIClusterRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIClusterRoleBinding",
@@ -122,16 +119,15 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-node-reader-binding",
 			},
-			Spec: crd.CAPIClusterRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-cluster-binding",
+			Spec: typesv1.CAPIClusterRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"test-node-reader"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 			},
 		}
-		err = f.Helper().CreateCRDObject(capiClusterRoleBinding, crd.CAPIClusterRoleBindingGVR, "")
+		err = f.Helper().CreateCRDObject(capiClusterRoleBinding, constants.CAPIClusterRoleBindingGVR, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for RBAC reconciliation")
@@ -144,7 +140,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should handle updates to CAPIRole dynamically", func() {
 		By("Creating initial CAPIRole")
-		capiRole := &crd.CAPIRole{
+		capiRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -153,19 +149,18 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "test-dynamic-role",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "dynamic-role",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					TargetClusters: []string{constants.ClusterName},
 					Rules:          []v1.PolicyRule{}, // No rules initially
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
-		capiRoleBinding := &crd.CAPIRoleBinding{
+		capiRoleBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -174,17 +169,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "test-dynamic-role-binding",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"test-dynamic-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err = f.Helper().CreateCRDObject(capiRoleBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err = f.Helper().CreateCRDObject(capiRoleBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Verifying initial forbidden access")
@@ -199,7 +193,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Verbs:     []string{"get", "list"},
 			},
 		}
-		err = f.Helper().UpdateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)
+		err = f.Helper().UpdateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Waiting for update to propagate")
@@ -225,7 +219,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Create CRD binding
-		capiBinding := &crd.CAPIClusterRoleBinding{
+		capiBinding := &typesv1.CAPIClusterRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIClusterRoleBinding",
@@ -233,16 +227,15 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "existing-role-binding",
 			},
-			Spec: crd.CAPIClusterRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
+			Spec: typesv1.CAPIClusterRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					TargetClusters: []string{constants.ClusterName},
-					Name:           "cluster-binding",
 					RoleRef:        []string{"existing-cluster-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 				},
 			},
 		}
-		Expect(f.Helper().CreateCRDObject(capiBinding, crd.CAPIClusterRoleBindingGVR, "")).To(Succeed())
+		Expect(f.Helper().CreateCRDObject(capiBinding, constants.CAPIClusterRoleBindingGVR, "")).To(Succeed())
 
 		By("Verifying node access")
 		Eventually(func() error {
@@ -257,7 +250,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 		ns2, _ := f.CreateKubeNamespace("target-ns-2")
 
 		// Create CRD role targeting multiple namespaces
-		capiRole := &crd.CAPIRole{
+		capiRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -265,9 +258,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "cross-ns-role",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "cross-role",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -280,9 +272,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{ns1.Name, ns2.Name},
 			},
 		}
-		Expect(f.Helper().CreateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
+		Expect(f.Helper().CreateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
 
-		capiRoleBinding := &crd.CAPIRoleBinding{
+		capiRoleBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -291,17 +283,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "test-pod-reader-binding",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"cross-ns-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 				TargetNamespaces: []string{ns1.Name, ns2.Name},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiRoleBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRoleBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Test access in both namespaces
@@ -344,7 +335,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should combine permissions from multiple roles", func() {
 		// Create Pod role
-		podRole := &crd.CAPIRole{
+		podRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -352,9 +343,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "multi-role-pods",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "pod-role",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -367,10 +357,10 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		Expect(f.Helper().CreateCRDObject(podRole, crd.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
+		Expect(f.Helper().CreateCRDObject(podRole, constants.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
 
 		// Create Service role
-		svcRole := &crd.CAPIRole{
+		svcRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -378,9 +368,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "multi-role-services",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "svc-role",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -393,9 +382,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		Expect(f.Helper().CreateCRDObject(svcRole, crd.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
+		Expect(f.Helper().CreateCRDObject(svcRole, constants.CAPIRoleGVR, f.Namespace.Name)).To(Succeed())
 
-		capiRoleBinding := &crd.CAPIRoleBinding{
+		capiRoleBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -404,18 +393,17 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "multiple-role-ref",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "multi-role-ref-binding",
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"multi-role-pods", "multi-role-services"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
 
-		err := f.Helper().CreateCRDObject(capiRoleBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRoleBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Verifying combined access")
@@ -432,15 +420,14 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should handle wildcard resource permissions", func() {
 		// Create wildcard role
-		wildcardRole := &crd.CAPIClusterRole{
+		wildcardRole := &typesv1.CAPIClusterRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIClusterRole",
 			},
 			ObjectMeta: metav1.ObjectMeta{Name: "wildcard-role"},
-			Spec: crd.CAPIClusterRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "wildcard",
+			Spec: typesv1.CAPIClusterRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -452,10 +439,10 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				},
 			},
 		}
-		Expect(f.Helper().CreateCRDObject(wildcardRole, crd.CAPIClusterRoleGVR, "")).To(Succeed())
+		Expect(f.Helper().CreateCRDObject(wildcardRole, constants.CAPIClusterRoleGVR, "")).To(Succeed())
 		By("creating binding")
 
-		capiClusterRoleBinding := &crd.CAPIClusterRoleBinding{
+		capiClusterRoleBinding := &typesv1.CAPIClusterRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIClusterRoleBinding",
@@ -463,17 +450,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-binding",
 			},
-			Spec: crd.CAPIClusterRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
+			Spec: typesv1.CAPIClusterRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"wildcard-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 			},
 		}
 
-		err := f.Helper().CreateCRDObject(capiClusterRoleBinding, crd.CAPIClusterRoleBindingGVR, "")
+		err := f.Helper().CreateCRDObject(capiClusterRoleBinding, constants.CAPIClusterRoleBindingGVR, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		// Test access to multiple resources
@@ -500,7 +486,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should apply roles to all clusters using wildcard target", func() {
 		By("Creating CAPIRole with wildcard cluster target")
-		capiRole := &crd.CAPIRole{
+		capiRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -509,9 +495,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "wildcard-cluster-role",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "wildcard-cluster",
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					TargetClusters: []string{"*"},
 					Rules: []v1.PolicyRule{
 						{
@@ -524,11 +509,11 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Creating CAPIRoleBinding with wildcard cluster target")
-		capiBinding := &crd.CAPIRoleBinding{
+		capiBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -537,16 +522,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "wildcard-cluster-binding",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"wildcard-cluster-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{"*"},
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err = f.Helper().CreateCRDObject(capiBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err = f.Helper().CreateCRDObject(capiBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Verifying access with wildcard clusters")
@@ -558,7 +543,7 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 
 	It("should not grant access with empty targetClusters", func() {
 		By("Creating role with empty targetClusters")
-		capiRole := &crd.CAPIRole{
+		capiRole := &typesv1.CAPIRole{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRole",
@@ -567,8 +552,8 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "empty-target-role",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleSpec{
-				CommonRoleSpec: crd.CommonRoleSpec{
+			Spec: typesv1.CAPIRoleSpec{
+				CommonRoleSpec: typesv1.CommonRoleSpec{
 					TargetClusters: []string{},
 					Rules: []v1.PolicyRule{
 						{
@@ -581,11 +566,11 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err := f.Helper().CreateCRDObject(capiRole, crd.CAPIRoleGVR, f.Namespace.Name)
+		err := f.Helper().CreateCRDObject(capiRole, constants.CAPIRoleGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Creating valid binding")
-		capiBinding := &crd.CAPIRoleBinding{
+		capiBinding := &typesv1.CAPIRoleBinding{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "rbac.platformengineers.io/v1",
 				Kind:       "CAPIRoleBinding",
@@ -594,16 +579,16 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 				Name:      "empty-target-binding",
 				Namespace: f.Namespace.Name,
 			},
-			Spec: crd.CAPIRoleBindingSpec{
-				CommonBindingSpec: crd.CommonBindingSpec{
+			Spec: typesv1.CAPIRoleBindingSpec{
+				CommonBindingSpec: typesv1.CommonBindingSpec{
 					RoleRef:        []string{"empty-target-role"},
-					Subjects:       []crd.Subject{{Group: "group-1"}},
+					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
 				TargetNamespaces: []string{f.Namespace.Name},
 			},
 		}
-		err = f.Helper().CreateCRDObject(capiBinding, crd.CAPIRoleBindingGVR, f.Namespace.Name)
+		err = f.Helper().CreateCRDObject(capiBinding, constants.CAPIRoleBindingGVR, f.Namespace.Name)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Verifying no access granted")

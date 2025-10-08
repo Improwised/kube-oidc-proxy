@@ -4,12 +4,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
-	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	typesv1 "github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd/types/v1"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
@@ -25,14 +27,9 @@ type CAPIRbacWatcher struct {
 	mu                             sync.RWMutex
 }
 
-func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface) (*CAPIRbacWatcher, error) {
+func NewCAPIRbacWatcher(config *rest.Config, clusters []*cluster.Cluster, auth authorizer.Interface) (*CAPIRbacWatcher, error) {
 
-	clusterConfig, err := util.BuildConfiguration()
-	if err != nil {
-		return &CAPIRbacWatcher{}, err
-	}
-
-	clusterClient, err := dynamic.NewForConfig(clusterConfig)
+	clusterClient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return &CAPIRbacWatcher{}, err
 	}
@@ -40,10 +37,10 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface) 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(clusterClient,
 		time.Minute, "", nil)
 
-	capiRoleInformer := factory.ForResource(CAPIRoleGVR).Informer()
-	capiRoleBindingInformer := factory.ForResource(CAPIRoleBindingGVR).Informer()
-	capiClusterRoleInformer := factory.ForResource(CAPIClusterRoleGVR).Informer()
-	capiClusterRoleBindingInformer := factory.ForResource(CAPIClusterRoleBindingGVR).Informer()
+	capiRoleInformer := factory.ForResource(constants.CAPIRoleGVR).Informer()
+	capiRoleBindingInformer := factory.ForResource(constants.CAPIRoleBindingGVR).Informer()
+	capiClusterRoleInformer := factory.ForResource(constants.CAPIClusterRoleGVR).Informer()
+	capiClusterRoleBindingInformer := factory.ForResource(constants.CAPIClusterRoleBindingGVR).Informer()
 
 	watcher := &CAPIRbacWatcher{
 		CAPIRoleInformer:               capiRoleInformer,
@@ -81,7 +78,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(10).Infof("Skipping CAPIRole add event during initial processing")
 				return
 			}
-			capiRole, err := ConvertUnstructured[CAPIRole](obj)
+			capiRole, err := ConvertUnstructured[typesv1.CAPIRole](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRole: %v", err)
 				return
@@ -90,12 +87,12 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			w.RebuildAllAuthorizers()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			oldCapiRole, err := ConvertUnstructured[CAPIRole](oldObj)
+			oldCapiRole, err := ConvertUnstructured[typesv1.CAPIRole](oldObj)
 			if err != nil {
 				klog.Errorf("Failed to convert old CAPIRole: %v", err)
 				return
 			}
-			newCapiRole, err := ConvertUnstructured[CAPIRole](newObj)
+			newCapiRole, err := ConvertUnstructured[typesv1.CAPIRole](newObj)
 			if err != nil {
 				klog.Errorf("Failed to convert new CAPIRole: %v", err)
 				return
@@ -114,7 +111,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIRole", obj)
 				return
 			}
-			capiRole, err := ConvertUnstructured[CAPIRole](u)
+			capiRole, err := ConvertUnstructured[typesv1.CAPIRole](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRole during deletion: %v", err)
 				return
@@ -131,7 +128,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(10).Infof("Skipping CAPIClusterRole add event during initial processing")
 				return
 			}
-			capiClusterRole, err := ConvertUnstructured[CAPIClusterRole](obj)
+			capiClusterRole, err := ConvertUnstructured[typesv1.CAPIClusterRole](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRole: %v", err)
 				return
@@ -140,12 +137,12 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			w.RebuildAllAuthorizers()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			oldCapiClusterRole, err := ConvertUnstructured[CAPIClusterRole](oldObj)
+			oldCapiClusterRole, err := ConvertUnstructured[typesv1.CAPIClusterRole](oldObj)
 			if err != nil {
 				klog.Errorf("Failed to convert old CAPIClusterRole: %v", err)
 				return
 			}
-			newCapiClusterRole, err := ConvertUnstructured[CAPIClusterRole](newObj)
+			newCapiClusterRole, err := ConvertUnstructured[typesv1.CAPIClusterRole](newObj)
 			if err != nil {
 				klog.Errorf("Failed to convert new CAPIClusterRole: %v", err)
 				return
@@ -164,7 +161,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIClusterRole", obj)
 				return
 			}
-			capiClusterRole, err := ConvertUnstructured[CAPIClusterRole](u)
+			capiClusterRole, err := ConvertUnstructured[typesv1.CAPIClusterRole](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRole during deletion: %v", err)
 				return
@@ -181,7 +178,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(10).Infof("Skipping CAPIRoleBinding add event during initial processing")
 				return
 			}
-			capiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](obj)
+			capiRoleBinding, err := ConvertUnstructured[typesv1.CAPIRoleBinding](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRoleBinding: %v", err)
 				return
@@ -190,12 +187,12 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			w.RebuildAllAuthorizers()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			oldCapiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](oldObj)
+			oldCapiRoleBinding, err := ConvertUnstructured[typesv1.CAPIRoleBinding](oldObj)
 			if err != nil {
 				klog.Errorf("Failed to convert old CAPIRoleBinding: %v", err)
 				return
 			}
-			newCapiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](newObj)
+			newCapiRoleBinding, err := ConvertUnstructured[typesv1.CAPIRoleBinding](newObj)
 			if err != nil {
 				klog.Errorf("Failed to convert new CAPIRoleBinding: %v", err)
 				return
@@ -214,7 +211,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIRoleBinding", obj)
 				return
 			}
-			capiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](u)
+			capiRoleBinding, err := ConvertUnstructured[typesv1.CAPIRoleBinding](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRoleBinding during deletion: %v", err)
 				return
@@ -231,7 +228,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(10).Infof("Skipping CAPIClusterRoleBinding add event during initial processing")
 				return
 			}
-			capiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](obj)
+			capiClusterRoleBinding, err := ConvertUnstructured[typesv1.CAPIClusterRoleBinding](obj)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRoleBinding: %v", err)
 				return
@@ -240,12 +237,12 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			w.RebuildAllAuthorizers()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			oldCapiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](oldObj)
+			oldCapiClusterRoleBinding, err := ConvertUnstructured[typesv1.CAPIClusterRoleBinding](oldObj)
 			if err != nil {
 				klog.Errorf("Failed to convert old CAPIClusterRoleBinding: %v", err)
 				return
 			}
-			newCapiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](newObj)
+			newCapiClusterRoleBinding, err := ConvertUnstructured[typesv1.CAPIClusterRoleBinding](newObj)
 			if err != nil {
 				klog.Errorf("Failed to convert new CAPIClusterRoleBinding: %v", err)
 				return
@@ -264,7 +261,7 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIClusterRoleBinding", obj)
 				return
 			}
-			capiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](u)
+			capiClusterRoleBinding, err := ConvertUnstructured[typesv1.CAPIClusterRoleBinding](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRoleBinding during deletion: %v", err)
 				return

@@ -6,6 +6,7 @@ import (
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
+	typesv1 "github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd/types/v1"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	"github.com/stretchr/testify/assert"
@@ -19,13 +20,12 @@ import (
 
 func TestConvertUnstructured_Success(t *testing.T) {
 	// Setup test CAPIRole
-	capiRole := &CAPIRole{
+	capiRole := &typesv1.CAPIRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-role",
 		},
-		Spec: CAPIRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
-				Name:  "test-role",
+		Spec: typesv1.CAPIRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				Rules: []v1.PolicyRule{{Verbs: []string{"get"}}},
 			},
 			TargetNamespaces: []string{"default"},
@@ -38,7 +38,7 @@ func TestConvertUnstructured_Success(t *testing.T) {
 	u := &unstructured.Unstructured{Object: unstructuredObj}
 
 	// Test conversion
-	result, err := ConvertUnstructured[CAPIRole](u)
+	result, err := ConvertUnstructured[typesv1.CAPIRole](u)
 	require.NoError(t, err)
 	assert.Equal(t, capiRole.Name, result.Name)
 	assert.Len(t, result.Spec.Rules, 1)
@@ -46,7 +46,7 @@ func TestConvertUnstructured_Success(t *testing.T) {
 
 func TestConvertUnstructured_Failure(t *testing.T) {
 	invalidObj := "not-an-unstructured-object"
-	_, err := ConvertUnstructured[CAPIRole](invalidObj)
+	_, err := ConvertUnstructured[typesv1.CAPIRole](invalidObj)
 	assert.ErrorContains(t, err, "expected unstructured object")
 }
 
@@ -61,9 +61,9 @@ func TestProcessCAPIRole(t *testing.T) {
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	// Test CAPIRole
-	capiRole := &CAPIRole{
-		Spec: CAPIRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+	capiRole := &typesv1.CAPIRole{
+		Spec: typesv1.CAPIRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 			TargetNamespaces: []string{"default"},
@@ -103,9 +103,9 @@ func TestDeleteCAPIRole(t *testing.T) {
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
 	// Create CAPIRole for deletion
-	capiRole := &CAPIRole{
-		Spec: CAPIRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+	capiRole := &typesv1.CAPIRole{
+		Spec: typesv1.CAPIRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 			TargetNamespaces: []string{"default"},
@@ -148,12 +148,12 @@ func TestDetermineTargetClusters(t *testing.T) {
 }
 
 func TestCreateClusterRoleBinding(t *testing.T) {
-	capiBinding := &CAPIClusterRoleBinding{
+	capiBinding := &typesv1.CAPIClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-binding"},
-		Spec: CAPIClusterRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+		Spec: typesv1.CAPIClusterRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				RoleRef:  []string{"role1", "role2"},
-				Subjects: []Subject{{User: "test-user"}},
+				Subjects: []typesv1.Subject{{User: "test-user"}},
 			},
 		},
 	}
@@ -262,10 +262,10 @@ func TestGetAllClusterNames(t *testing.T) {
 }
 
 func TestCreateRole(t *testing.T) {
-	capiRole := &CAPIRole{
+	capiRole := &typesv1.CAPIRole{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-role"},
-		Spec: CAPIRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+		Spec: typesv1.CAPIRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				Rules: []v1.PolicyRule{{Verbs: []string{"get"}}},
 			},
 		},
@@ -280,10 +280,10 @@ func TestCreateRole(t *testing.T) {
 }
 
 func TestCreateClusterRole(t *testing.T) {
-	capiClusterRole := &CAPIClusterRole{
+	capiClusterRole := &typesv1.CAPIClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-clusterrole"},
-		Spec: CAPIClusterRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+		Spec: typesv1.CAPIClusterRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				Rules: []v1.PolicyRule{{Verbs: []string{"list"}}},
 			},
 		},
@@ -298,14 +298,14 @@ func TestCreateClusterRole(t *testing.T) {
 func TestDetermineSubjectKind(t *testing.T) {
 	tests := []struct {
 		name     string
-		subject  Subject
+		subject  typesv1.Subject
 		expected string
 	}{
-		{"group", Subject{Group: "admins"}, "Group"},
-		{"user", Subject{User: "john"}, "User"},
-		{"serviceaccount", Subject{ServiceAccount: "system"}, "ServiceAccount"},
-		{"empty", Subject{}, ""},
-		{"multiple fields", Subject{Group: "admins", User: "john"}, "Group"},
+		{"group", typesv1.Subject{Group: "admins"}, "Group"},
+		{"user", typesv1.Subject{User: "john"}, "User"},
+		{"serviceaccount", typesv1.Subject{ServiceAccount: "system"}, "ServiceAccount"},
+		{"empty", typesv1.Subject{}, ""},
+		{"multiple fields", typesv1.Subject{Group: "admins", User: "john"}, "Group"},
 	}
 
 	for _, tt := range tests {
@@ -318,14 +318,14 @@ func TestDetermineSubjectKind(t *testing.T) {
 func TestDetermineSubjectName(t *testing.T) {
 	tests := []struct {
 		name     string
-		subject  Subject
+		subject  typesv1.Subject
 		expected string
 	}{
-		{"group", Subject{Group: "admins"}, "admins"},
-		{"user", Subject{User: "john"}, "john"},
-		{"serviceaccount", Subject{ServiceAccount: "system"}, "system"},
-		{"empty", Subject{}, ""},
-		{"multiple fields", Subject{Group: "admins", User: "john"}, "admins"},
+		{"group", typesv1.Subject{Group: "admins"}, "admins"},
+		{"user", typesv1.Subject{User: "john"}, "john"},
+		{"serviceaccount", typesv1.Subject{ServiceAccount: "system"}, "system"},
+		{"empty", typesv1.Subject{}, ""},
+		{"multiple fields", typesv1.Subject{Group: "admins", User: "john"}, "admins"},
 	}
 
 	for _, tt := range tests {
@@ -336,7 +336,7 @@ func TestDetermineSubjectName(t *testing.T) {
 }
 
 func TestConvertSubjects(t *testing.T) {
-	subjects := []Subject{
+	subjects := []typesv1.Subject{
 		{Group: "devs"},
 		{User: "admin"},
 		{ServiceAccount: "system"},
@@ -362,7 +362,7 @@ func TestConvertSubjects(t *testing.T) {
 func TestCreateRoleBinding(t *testing.T) {
 	tests := []struct {
 		name                string
-		capiRoleBinding     *CAPIRoleBinding
+		capiRoleBinding     *typesv1.CAPIRoleBinding
 		namespace           string
 		clusters            []*cluster.Cluster
 		expectedBindings    int
@@ -371,14 +371,14 @@ func TestCreateRoleBinding(t *testing.T) {
 	}{
 		{
 			name: "Create RoleBinding referencing Role",
-			capiRoleBinding: &CAPIRoleBinding{
+			capiRoleBinding: &typesv1.CAPIRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-binding",
 				},
-				Spec: CAPIRoleBindingSpec{
-					CommonBindingSpec: CommonBindingSpec{
+				Spec: typesv1.CAPIRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef: []string{"test-role"},
-						Subjects: []Subject{
+						Subjects: []typesv1.Subject{
 							{
 								User: "test-user",
 							},
@@ -407,14 +407,14 @@ func TestCreateRoleBinding(t *testing.T) {
 		},
 		{
 			name: "Create RoleBinding referencing ClusterRole",
-			capiRoleBinding: &CAPIRoleBinding{
+			capiRoleBinding: &typesv1.CAPIRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-binding",
 				},
-				Spec: CAPIRoleBindingSpec{
-					CommonBindingSpec: CommonBindingSpec{
+				Spec: typesv1.CAPIRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef: []string{"test-cluster-role"},
-						Subjects: []Subject{
+						Subjects: []typesv1.Subject{
 							{User: "test-user"},
 						},
 					},
@@ -468,9 +468,9 @@ func TestProcessCAPIClusterRole(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiClusterRole := &CAPIClusterRole{
-		Spec: CAPIClusterRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+	capiClusterRole := &typesv1.CAPIClusterRole{
+		Spec: typesv1.CAPIClusterRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 		},
@@ -502,9 +502,9 @@ func TestDeleteCAPIClusterRole(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiClusterRole := &CAPIClusterRole{
-		Spec: CAPIClusterRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+	capiClusterRole := &typesv1.CAPIClusterRole{
+		Spec: typesv1.CAPIClusterRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 		},
@@ -524,12 +524,12 @@ func TestProcessCAPIRoleBinding(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiRoleBinding := &CAPIRoleBinding{
-		Spec: CAPIRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+	capiRoleBinding := &typesv1.CAPIRoleBinding{
+		Spec: typesv1.CAPIRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
 				RoleRef:        []string{"role1"},
-				Subjects:       []Subject{{User: "test-user"}},
+				Subjects:       []typesv1.Subject{{User: "test-user"}},
 			},
 			TargetNamespaces: []string{"default"},
 		},
@@ -562,9 +562,9 @@ func TestDeleteCAPIRoleBinding(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiRoleBinding := &CAPIRoleBinding{
-		Spec: CAPIRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+	capiRoleBinding := &typesv1.CAPIRoleBinding{
+		Spec: typesv1.CAPIRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 			TargetNamespaces: []string{"default"},
@@ -585,12 +585,12 @@ func TestProcessCAPIClusterRoleBinding(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiCRB := &CAPIClusterRoleBinding{
-		Spec: CAPIClusterRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+	capiCRB := &typesv1.CAPIClusterRoleBinding{
+		Spec: typesv1.CAPIClusterRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
 				RoleRef:        []string{"cluster-role1"},
-				Subjects:       []Subject{{Group: "admins"}},
+				Subjects:       []typesv1.Subject{{Group: "admins"}},
 			},
 		},
 	}
@@ -621,9 +621,9 @@ func TestDeleteCAPIClusterRoleBinding(t *testing.T) {
 	}
 	watcher := &CAPIRbacWatcher{clusters: []*cluster.Cluster{testCluster}}
 
-	capiCRB := &CAPIClusterRoleBinding{
-		Spec: CAPIClusterRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+	capiCRB := &typesv1.CAPIClusterRoleBinding{
+		Spec: typesv1.CAPIClusterRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 		},
@@ -662,7 +662,7 @@ func TestConvertUnstructured_ConversionFailure(t *testing.T) {
 		Kind:    "CAPIRole",
 	})
 
-	_, err := ConvertUnstructured[CAPIRole](u)
+	_, err := ConvertUnstructured[typesv1.CAPIRole](u)
 	assert.ErrorContains(t, err, "conversion failed")
 }
 
@@ -1081,15 +1081,15 @@ func TestIntegrationScenario_RaceCondition(t *testing.T) {
 	}
 
 	// Step 1: Process CAPIRoleBinding before ClusterRole exists
-	capiRoleBinding := &CAPIRoleBinding{
+	capiRoleBinding := &typesv1.CAPIRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-binding",
 		},
-		Spec: CAPIRoleBindingSpec{
-			CommonBindingSpec: CommonBindingSpec{
+		Spec: typesv1.CAPIRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
 				RoleRef:        []string{"future-cluster-role"},
-				Subjects: []Subject{
+				Subjects: []typesv1.Subject{
 					{User: "test-user"},
 				},
 			},
@@ -1105,12 +1105,12 @@ func TestIntegrationScenario_RaceCondition(t *testing.T) {
 	assert.Equal(t, "Role", cluster.RBACConfig.RoleBindings[0].RoleRef.Kind, "Should initially default to Role")
 
 	// Step 2: Process CAPIClusterRole
-	capiClusterRole := &CAPIClusterRole{
+	capiClusterRole := &typesv1.CAPIClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "future-cluster-role",
 		},
-		Spec: CAPIClusterRoleSpec{
-			CommonRoleSpec: CommonRoleSpec{
+		Spec: typesv1.CAPIClusterRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"cluster1"},
 			},
 		},

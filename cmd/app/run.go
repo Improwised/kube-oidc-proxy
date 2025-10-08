@@ -74,15 +74,19 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 
 			rbacAuthorizer := authorizer.NewRBACAuthorizer()
 
+			restConfig, err := util.BuildConfiguration()
+			if err != nil {
+				return err
+			}
 			// Initialize CAPI RBAC watcher if available
-			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(clusterConfigs, rbacAuthorizer)
+			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(restConfig, clusterConfigs, rbacAuthorizer)
 			if err != nil {
 				klog.Errorf("Failed to initialize CAPI RBAC watcher: %v", err)
 				capiRBACWatcher = nil // Continue without watcher if initialization fails
 			}
 
 			// Create cluster manager to handle dynamic clusters
-			clusterManager, err := clustermanager.NewClusterManager(opts.App.TokenPassthrough.Enabled, opts.App.TokenPassthrough.Audiences, clusterRBACConfigs, capiRBACWatcher, opts.App.MaxGoroutines, rbacAuthorizer)
+			clusterManager, err := clustermanager.NewClusterManager(restConfig, opts.App.TokenPassthrough.Enabled, opts.App.TokenPassthrough.Audiences, clusterRBACConfigs, capiRBACWatcher, opts.App.MaxGoroutines, rbacAuthorizer)
 			if err != nil {
 				return fmt.Errorf("failed to create cluster manager: %w", err)
 			}
