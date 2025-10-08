@@ -34,7 +34,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "pod-reader",
 					TargetClusters: []string{constants.ClusterName},
 					Rules: []v1.PolicyRule{
 						{
@@ -62,7 +61,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
 					RoleRef:        []string{"test-pod-reader"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -98,7 +96,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIClusterRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "node-reader",
 					TargetClusters: []string{constants.ClusterName},
 					Rules: []v1.PolicyRule{
 						{
@@ -124,7 +121,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-cluster-binding",
 					RoleRef:        []string{"test-node-reader"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -155,7 +151,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "dynamic-role",
 					TargetClusters: []string{constants.ClusterName},
 					Rules:          []v1.PolicyRule{}, // No rules initially
 				},
@@ -176,7 +171,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
 					RoleRef:        []string{"test-dynamic-role"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -236,7 +230,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			Spec: crd.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
 					TargetClusters: []string{constants.ClusterName},
-					Name:           "cluster-binding",
 					RoleRef:        []string{"existing-cluster-role"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 				},
@@ -267,7 +260,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "cross-role",
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -293,7 +285,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
 					RoleRef:        []string{"cross-ns-role"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -354,7 +345,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "pod-role",
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -380,7 +370,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "svc-role",
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -406,7 +395,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "multi-role-ref-binding",
 					RoleRef:        []string{"multi-role-pods", "multi-role-services"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -440,7 +428,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: "wildcard-role"},
 			Spec: crd.CAPIClusterRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name: "wildcard",
 					Rules: []v1.PolicyRule{
 						{
 							APIGroups: []string{""},
@@ -465,7 +452,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: crd.CommonBindingSpec{
-					Name:           "test-binding",
 					RoleRef:        []string{"wildcard-role"},
 					Subjects:       []crd.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
@@ -511,7 +497,6 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: crd.CAPIRoleSpec{
 				CommonRoleSpec: crd.CommonRoleSpec{
-					Name:           "wildcard-cluster",
 					TargetClusters: []string{"*"},
 					Rules: []v1.PolicyRule{
 						{

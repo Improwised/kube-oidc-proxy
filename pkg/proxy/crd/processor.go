@@ -5,6 +5,7 @@ import (
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
 	"github.com/Improwised/kube-oidc-proxy/pkg/cluster"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	v1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -217,6 +218,10 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRole(capiClusterRole *CAPICluster
 }
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBinding *CAPIClusterRoleBinding) {
+	if util.IsBindingExpired(capiClusterRoleBinding.Status.Conditions, capiClusterRoleBinding.CreationTimestamp.Time, capiClusterRoleBinding.Spec.DurationMinutes) {
+		klog.V(4).Infof("Skipping expired cluster role binding %s", capiClusterRoleBinding.Name)
+		return
+	}
 	targetClusters := determineTargetClusters(capiClusterRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
 	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping cluster role binding ", capiClusterRoleBinding.Name, " because it doesn't contain target clusters")
@@ -233,6 +238,10 @@ func (ctrl *CAPIRbacWatcher) ProcessCAPIClusterRoleBinding(capiClusterRoleBindin
 }
 
 func (ctrl *CAPIRbacWatcher) ProcessCAPIRoleBinding(capiRoleBinding *CAPIRoleBinding) {
+	if util.IsBindingExpired(capiRoleBinding.Status.Conditions, capiRoleBinding.CreationTimestamp.Time, capiRoleBinding.Spec.DurationMinutes) {
+		klog.V(4).Infof("Skipping expired role binding %s", capiRoleBinding.Name)
+		return
+	}
 	targetClusters := determineTargetClusters(capiRoleBinding.Spec.CommonBindingSpec.TargetClusters, ctrl.clusters)
 	if len(targetClusters) < 1 && len(ctrl.clusters) > 0 {
 		klog.Warning("skipping role binding ", capiRoleBinding.Name, " because it doesn't contain target clusters")
@@ -344,6 +353,10 @@ func (ctrl *CAPIRbacWatcher) ProcessExistingRBACObjects() {
 			continue
 		}
 		ctrl.ProcessCAPIRoleBinding(roleBinding)
+		if ctrl.jitEnabled {
+			unstructuredObj, _ := obj.(*unstructured.Unstructured)
+			ctrl.addTimerForBinding(unstructuredObj, roleBinding.Spec.DurationMinutes, CAPIRoleBindingGVR)
+		}
 	}
 
 	// Process existing CAPIClusterRoles
@@ -366,6 +379,10 @@ func (ctrl *CAPIRbacWatcher) ProcessExistingRBACObjects() {
 			continue
 		}
 		ctrl.ProcessCAPIClusterRoleBinding(clusterRoleBinding)
+		if ctrl.jitEnabled {
+			unstructuredObj, _ := obj.(*unstructured.Unstructured)
+			ctrl.addTimerForBinding(unstructuredObj, clusterRoleBinding.Spec.DurationMinutes, CAPIClusterRoleBindingGVR)
+		}
 	}
 
 	// Rebuild authorizers for all clusters

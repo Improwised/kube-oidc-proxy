@@ -34,8 +34,8 @@ type KubeOIDCProxyOptions struct {
 	// Max goroutines for cluster manager
 	MaxGoroutines int
 
-	// JITBindingCleanupInterval is the interval at which the controller cleans up expired JIT bindings.
-	JITBindingCleanupInterval time.Duration
+	// EnableJIT enables Just-In-Time bindings.
+	EnableJIT bool
 }
 
 type TokenPassthroughOptions struct {
@@ -68,7 +68,7 @@ func (k *KubeOIDCProxyOptions) AddFlags(fs *pflag.FlagSet) *KubeOIDCProxyOptions
 
 	fs.IntVar(&k.MaxGoroutines, "max-goroutines", 10,
 		"Maximum number of concurrent goroutines for cluster initialization")
-	fs.DurationVar(&k.JITBindingCleanupInterval, "jit-binding-cleanup-interval", time.Minute, "The interval at which the controller cleans up expired JIT bindings.")
+	fs.BoolVar(&k.EnableJIT, "enable-jit", false, "Enable Just-In-Time (JIT) bindings. If false, all bindings are considered permanent.")
 
 	fs.DurationVar(&k.FlushInterval, "flush-interval", time.Millisecond*50,
 		"Specifies the interval to flush request bodies. If 0ms, "+

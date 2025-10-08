@@ -9,8 +9,10 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -28,10 +30,12 @@ type CAPIRbacWatcher struct {
 	authorizer                     authorizer.Interface
 	mu                             sync.RWMutex
 	dynamicClient                  dynamic.Interface
-	cleanupInterval                time.Duration
+	bindingTimers                  map[string]*time.Timer
+	timersMutex                    sync.Mutex
+	jitEnabled                     bool
 }
 
-func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface, cleanupInterval time.Duration) (*CAPIRbacWatcher, error) {
+func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface, enableJIT bool) (*CAPIRbacWatcher, error) {
 
 	clusterConfig, err := util.BuildConfiguration()
 	if err != nil {
@@ -51,10 +55,6 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface, 
 	capiClusterRoleInformer := factory.ForResource(CAPIClusterRoleGVR).Informer()
 	capiClusterRoleBindingInformer := factory.ForResource(CAPIClusterRoleBindingGVR).Informer()
 
-	if cleanupInterval <= 0 {
-		cleanupInterval = time.Minute
-	}
-
 	watcher := &CAPIRbacWatcher{
 		CAPIRoleInformer:               capiRoleInformer,
 		CAPIClusterRoleInformer:        capiClusterRoleInformer,
@@ -63,7 +63,8 @@ func NewCAPIRbacWatcher(clusters []*cluster.Cluster, auth authorizer.Interface, 
 		clusters:                       clusters,
 		authorizer:                     auth,
 		dynamicClient:                  clusterClient,
-		cleanupInterval:                cleanupInterval,
+		bindingTimers:                  make(map[string]*time.Timer),
+		jitEnabled:                     enableJIT,
 	}
 
 	watcher.RegisterEventHandlers()
@@ -83,88 +84,140 @@ func (w *CAPIRbacWatcher) Start(stopCh <-chan struct{}) {
 		w.CAPIRoleBindingInformer.HasSynced,
 		w.CAPIClusterRoleBindingInformer.HasSynced,
 	)
-	go w.startExpiredBindingsCleanup(stopCh)
-}
 
-func (w *CAPIRbacWatcher) startExpiredBindingsCleanup(stopCh <-chan struct{}) {
-	klog.Info("Starting expired bindings cleanup routine")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// Add a shutdown hook to stop all active timers
 	go func() {
 		<-stopCh
-		cancel()
+		klog.Info("Shutting down, stopping all binding timers...")
+		w.timersMutex.Lock()
+		defer w.timersMutex.Unlock()
+		for key, timer := range w.bindingTimers {
+			timer.Stop()
+			delete(w.bindingTimers, key)
+		}
+		klog.Info("All binding timers stopped.")
 	}()
-
-	ticker := time.NewTicker(w.cleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			w.cleanupExpiredBindings(ctx)
-		case <-stopCh:
-			klog.Info("Stopping expired bindings cleanup routine")
-			return
-		}
-	}
 }
 
-func (w *CAPIRbacWatcher) cleanupExpiredBindings(ctx context.Context) {
-	klog.V(4).Info("Running cleanup for expired bindings")
-
-	// CAPIClusterRoleBindings
-	clusterRoleBindings := w.CAPIClusterRoleBindingInformer.GetStore().List()
-	for _, obj := range clusterRoleBindings {
-		binding, err := ConvertUnstructured[CAPIClusterRoleBinding](obj)
-		if err != nil {
-			klog.Errorf("Failed to convert CAPIClusterRoleBinding during cleanup check: %v", err)
-			continue
-		}
-
-		if util.IsExpired(binding.CreationTimestamp.Time, binding.Spec.DurationMinutes) {
-			go w.deleteBinding(ctx, CAPIClusterRoleBindingGVR, "", binding.Name)
-		}
+// getBindingKey creates a unique key for a binding object.
+// For cluster-scoped resources, it's the name. For namespaced resources, it's "namespace/name".
+func getBindingKey(obj metav1.Object) string {
+	if obj.GetNamespace() == "" {
+		return obj.GetName()
 	}
-
-	// CAPIRoleBindings
-	roleBindings := w.CAPIRoleBindingInformer.GetStore().List()
-	for _, obj := range roleBindings {
-		binding, err := ConvertUnstructured[CAPIRoleBinding](obj)
-		if err != nil {
-			klog.Errorf("Failed to convert CAPIRoleBinding during cleanup check: %v", err)
-			continue
-		}
-
-		if util.IsExpired(binding.CreationTimestamp.Time, binding.Spec.DurationMinutes) {
-			go w.deleteBinding(ctx, CAPIRoleBindingGVR, "", binding.Name)
-		}
-	}
+	return obj.GetNamespace() + "/" + obj.GetName()
 }
 
-func (w *CAPIRbacWatcher) deleteBinding(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string) {
-	logName := name
-	if namespace != "" {
-		logName = namespace + "/" + name
-	}
-	klog.V(2).Infof("Deleting expired binding %s", logName)
-
-	var err error
-	if namespace == "" {
-		err = w.dynamicClient.Resource(gvr).Delete(ctx, name, metav1.DeleteOptions{})
-	} else {
-		err = w.dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	}
-
+func (w *CAPIRbacWatcher) markBindingAsExpired(gvr schema.GroupVersionResource, namespace, name string) {
+	obj, err := w.dynamicClient.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
-		// Don't log "not found" errors, as the binding might have been deleted by another process
-		// or in a previous reconciliation loop.
 		if !apierrors.IsNotFound(err) {
-			klog.Errorf("Failed to delete expired binding %s: %v", logName, err)
+			klog.Errorf("Failed to get binding %s/%s to mark as expired: %v", namespace, name, err)
 		}
-	} else {
-		klog.V(2).Infof("Successfully deleted expired binding %s", logName)
+		return
 	}
+
+	expiredCondition := metav1.Condition{
+		Type:               "Expired",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "BindingExpired",
+		Message:            "The temporary binding has expired and is no longer effective.",
+	}
+
+	unstructuredConditions, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+
+	var conditions []metav1.Condition
+	for _, condUnstructured := range unstructuredConditions {
+		var cond metav1.Condition
+		condMap, _ := condUnstructured.(map[string]interface{})
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(condMap, &cond); err == nil {
+			conditions = append(conditions, cond)
+		}
+	}
+
+	meta.SetStatusCondition(&conditions, expiredCondition)
+
+	var newUnstructuredConditions []interface{}
+	for _, cond := range conditions {
+		condMap, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(&cond)
+		newUnstructuredConditions = append(newUnstructuredConditions, condMap)
+	}
+
+	unstructured.SetNestedSlice(obj.Object, newUnstructuredConditions, "status", "conditions")
+
+	_, err = w.dynamicClient.Resource(gvr).Namespace(namespace).UpdateStatus(context.Background(), obj, metav1.UpdateOptions{})
+	if err != nil {
+		klog.Errorf("Failed to update status for binding %s/%s: %v", namespace, name, err)
+	} else {
+		klog.V(2).Infof("Successfully marked binding %s/%s as expired", namespace, name)
+	}
+}
+
+// removeTimerForBinding cancels and removes a scheduled deletion timer for a binding.
+// This is called when a binding is deleted manually or updated.
+func (w *CAPIRbacWatcher) removeTimerForBinding(obj metav1.Object) {
+	key := getBindingKey(obj)
+
+	w.timersMutex.Lock()
+	defer w.timersMutex.Unlock()
+
+	if timer, exists := w.bindingTimers[key]; exists {
+		timer.Stop()
+		delete(w.bindingTimers, key)
+		klog.V(2).Infof("Cancelled and removed timer for binding %q", key)
+	}
+}
+
+// addTimerForBinding schedules a binding for deletion if it has an expiration duration.
+func (w *CAPIRbacWatcher) addTimerForBinding(obj metav1.Object, durationMinutes *int32, gvr schema.GroupVersionResource) {
+	if durationMinutes == nil || *durationMinutes <= 0 {
+		return
+	}
+
+	key := getBindingKey(obj)
+	creationTime := obj.GetCreationTimestamp().Time
+
+	// If the binding is already past its expiration time, delete it immediately.
+	if util.IsBindingExpired(nil, creationTime, durationMinutes) {
+		klog.V(2).Infof("Binding %q is already expired, marking as expired immediately", key)
+		go w.markBindingAsExpired(gvr, obj.GetNamespace(), obj.GetName())
+		return
+	}
+
+	_, duration := util.CalculateExpirationTime(creationTime, durationMinutes)
+
+	klog.V(2).Infof("Scheduling deletion for binding %q in %v", key, duration)
+
+	w.timersMutex.Lock()
+	defer w.timersMutex.Unlock()
+
+	// If a timer already exists (e.g., from a recent update), stop it before creating a new one.
+	if timer, exists := w.bindingTimers[key]; exists {
+		timer.Stop()
+	}
+
+	// Create a timer that will trigger the deletion.
+	timer := time.AfterFunc(duration, func() {
+		klog.V(2).Infof("Timer fired for binding %q, initiating deletion", key)
+		// Safety check: verify binding still exists before updating
+		_, err := w.dynamicClient.Resource(gvr).Namespace(obj.GetNamespace()).Get(context.Background(), obj.GetName(), metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			klog.V(3).Infof("Binding %q no longer exists, skipping expiration mark", key)
+		} else if err == nil {
+			// Binding exists, mark as expired
+			w.markBindingAsExpired(gvr, obj.GetNamespace(), obj.GetName())
+		} else {
+			klog.Errorf("Failed to check binding %q existence: %v", key, err)
+		}
+
+		// Clean up the timer from the map.
+		w.timersMutex.Lock()
+		delete(w.bindingTimers, key)
+		w.timersMutex.Unlock()
+	})
+
+	w.bindingTimers[key] = timer
 }
 
 func (w *CAPIRbacWatcher) RegisterEventHandlers() {
@@ -282,6 +335,11 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			}
 			w.ProcessCAPIRoleBinding(capiRoleBinding)
 			w.RebuildAllAuthorizers()
+
+			if w.jitEnabled && capiRoleBinding.Spec.DurationMinutes != nil && *capiRoleBinding.Spec.DurationMinutes > 0 {
+				unstructuredObj, _ := obj.(*unstructured.Unstructured)
+				w.addTimerForBinding(unstructuredObj, capiRoleBinding.Spec.DurationMinutes, CAPIRoleBindingGVR)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldCapiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](oldObj)
@@ -298,16 +356,43 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(5).Infof("ResourceVersion is the same, skipping update")
 				return
 			}
+
+			oldExpired := util.IsBindingExpired(oldCapiRoleBinding.Status.Conditions, oldCapiRoleBinding.CreationTimestamp.Time, oldCapiRoleBinding.Spec.DurationMinutes)
+			newExpired := util.IsBindingExpired(newCapiRoleBinding.Status.Conditions, newCapiRoleBinding.CreationTimestamp.Time, newCapiRoleBinding.Spec.DurationMinutes)
+			if !oldExpired && newExpired {
+				klog.V(4).Infof("RoleBinding %s has expired, removing from authorizer", oldCapiRoleBinding.Name)
+				w.DeleteCAPIRoleBinding(oldCapiRoleBinding)
+				w.RebuildAllAuthorizers()
+				return
+			}
+
+			oldUnstructuredObj, _ := oldObj.(*unstructured.Unstructured)
+			newUnstructuredObj, _ := newObj.(*unstructured.Unstructured)
+
 			w.DeleteCAPIRoleBinding(oldCapiRoleBinding)
 			w.ProcessCAPIRoleBinding(newCapiRoleBinding)
+			if w.jitEnabled {
+				w.removeTimerForBinding(oldUnstructuredObj)
+				w.addTimerForBinding(newUnstructuredObj, newCapiRoleBinding.Spec.DurationMinutes, CAPIRoleBindingGVR)
+			}
 			w.RebuildAllAuthorizers()
 		},
 		DeleteFunc: func(obj interface{}) {
-			u, ok := obj.(*unstructured.Unstructured)
-			if !ok {
+			var u *unstructured.Unstructured
+			if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				if u, ok = tombstone.Obj.(*unstructured.Unstructured); !ok {
+					klog.Errorf("Unexpected type in tombstone %T for CAPIRoleBinding", tombstone.Obj)
+					return
+				}
+			} else if u, ok = obj.(*unstructured.Unstructured); !ok {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIRoleBinding", obj)
 				return
 			}
+
+			if w.jitEnabled {
+				w.removeTimerForBinding(u)
+			}
+
 			capiRoleBinding, err := ConvertUnstructured[CAPIRoleBinding](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIRoleBinding during deletion: %v", err)
@@ -332,6 +417,11 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 			}
 			w.ProcessCAPIClusterRoleBinding(capiClusterRoleBinding)
 			w.RebuildAllAuthorizers()
+
+			if w.jitEnabled && capiClusterRoleBinding.Spec.DurationMinutes != nil && *capiClusterRoleBinding.Spec.DurationMinutes > 0 {
+				unstructuredObj, _ := obj.(*unstructured.Unstructured)
+				w.addTimerForBinding(unstructuredObj, capiClusterRoleBinding.Spec.DurationMinutes, CAPIClusterRoleBindingGVR)
+			}
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldCapiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](oldObj)
@@ -348,16 +438,48 @@ func (w *CAPIRbacWatcher) RegisterEventHandlers() {
 				klog.V(5).Infof("ResourceVersion is the same, skipping update")
 				return
 			}
+
+			unstructuredObj, _ := newObj.(*unstructured.Unstructured)
+			if unstructuredObj.GetDeletionTimestamp() != nil {
+				return
+			}
+
+			oldExpired := util.IsBindingExpired(oldCapiClusterRoleBinding.Status.Conditions, oldCapiClusterRoleBinding.CreationTimestamp.Time, oldCapiClusterRoleBinding.Spec.DurationMinutes)
+			newExpired := util.IsBindingExpired(newCapiClusterRoleBinding.Status.Conditions, newCapiClusterRoleBinding.CreationTimestamp.Time, newCapiClusterRoleBinding.Spec.DurationMinutes)
+			if !oldExpired && newExpired {
+				klog.V(4).Infof("ClusterRoleBinding %s has expired, removing from authorizer", oldCapiClusterRoleBinding.Name)
+				w.DeleteCAPIClusterRoleBinding(oldCapiClusterRoleBinding)
+				w.RebuildAllAuthorizers()
+				return
+			}
+
+			oldUnstructuredObj, _ := oldObj.(*unstructured.Unstructured)
+			newUnstructuredObj, _ := newObj.(*unstructured.Unstructured)
+
 			w.DeleteCAPIClusterRoleBinding(oldCapiClusterRoleBinding)
 			w.ProcessCAPIClusterRoleBinding(newCapiClusterRoleBinding)
+			if w.jitEnabled {
+				w.removeTimerForBinding(oldUnstructuredObj)
+				w.addTimerForBinding(newUnstructuredObj, newCapiClusterRoleBinding.Spec.DurationMinutes, CAPIClusterRoleBindingGVR)
+			}
 			w.RebuildAllAuthorizers()
 		},
 		DeleteFunc: func(obj interface{}) {
-			u, ok := obj.(*unstructured.Unstructured)
-			if !ok {
+			var u *unstructured.Unstructured
+			if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				if u, ok = tombstone.Obj.(*unstructured.Unstructured); !ok {
+					klog.Errorf("Unexpected type in tombstone %T for CAPIClusterRoleBinding", tombstone.Obj)
+					return
+				}
+			} else if u, ok = obj.(*unstructured.Unstructured); !ok {
 				klog.Errorf("Unexpected type %T in DeleteFunc for CAPIClusterRoleBinding", obj)
 				return
 			}
+
+			if w.jitEnabled {
+				w.removeTimerForBinding(u)
+			}
+
 			capiClusterRoleBinding, err := ConvertUnstructured[CAPIClusterRoleBinding](u)
 			if err != nil {
 				klog.Errorf("Failed to convert CAPIClusterRoleBinding during deletion: %v", err)

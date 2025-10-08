@@ -14,7 +14,7 @@ import (
 	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/server"
 	genericfilters "k8s.io/apiserver/pkg/server/filters"
-	"k8s.io/component-base/version"
+	"k8s.io/apiserver/pkg/util/compatibility"
 	"k8s.io/klog/v2"
 
 	"github.com/Improwised/kube-oidc-proxy/cmd/app/options"
@@ -72,7 +72,7 @@ func New(opts *options.AuditOptions, externalAddress string, secureServingInfo *
 		return nil, err
 	}
 
-	serverConfig.EffectiveVersion = version.NewEffectiveVersion("1.0.31")
+	serverConfig.EffectiveVersion = compatibility.DefaultBuildEffectiveVersion()
 	completed := serverConfig.Complete(nil)
 
 	if opts.AuditWebhookServer == "" {
