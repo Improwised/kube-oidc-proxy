@@ -14,6 +14,7 @@ type KubeOIDCProxyOptions struct {
 	Cluster              Cluster
 	DisableImpersonation bool
 	ReadinessProbePort   int
+	WebhookPort          int
 	MaxGoroutines        int
 
 	FlushInterval time.Duration
@@ -49,6 +50,8 @@ func (k *KubeOIDCProxyOptions) AddFlags(fs *pflag.FlagSet) *KubeOIDCProxyOptions
 
 	fs.IntVarP(&k.ReadinessProbePort, "readiness-probe-port", "P", 8080,
 		"Port to expose readiness probe.")
+
+	fs.IntVar(&k.WebhookPort, "webhook-port", 9443, "Port for the webhook server.")
 
 	fs.IntVar(&k.MaxGoroutines, "max-goroutines", 10,
 		"Maximum number of concurrent goroutines for cluster initialization")
