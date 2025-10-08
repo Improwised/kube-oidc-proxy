@@ -1,7 +1,12 @@
 # Copyright Jetstack Ltd. See LICENSE for details.
 BINDIR    ?= $(CURDIR)/bin
+$(BINDIR):
+	mkdir -p $(BINDIR)
+
 HACK_DIR  ?= hack
 PATH      := $(BINDIR):$(PATH)
+CONTROLLER_GEN ?= $(BINDIR)/controller-gen
+CONTROLLER_TOOLS_VERSION ?= v0.17.2
 ARTIFACTS ?= artifacts
 ARCH      ?= amd64
 
@@ -30,6 +35,16 @@ ifeq ($(UNAME_S),Darwin)
 	GOLANGCILINT_URL := https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCILINT_VERSION)/golangci-lint-$(GOLANGCILINT_VERSION)-darwin-amd64.tar.gz
 	GOLANGCILINT_HASH := 2b2713ec5007e67883aa501eebb81f22abfab0cf0909134ba90f60a066db3760
 endif
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(BINDIR)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+
+.PHONY: manifests
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=deploy/crds output:webhook:artifacts:config=deploy/webhooks
 
 $(BINDIR)/mockgen:
 	mkdir -p $(BINDIR)
@@ -84,7 +99,9 @@ clean: ## clean up created files
 
 verify: depend go_fmt go_vet go_lint ## verify code and mod
 
-generate: depend ## generates mocks and assets files
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and generates mocks and assets files
+	$(CONTROLLER_GEN) object paths="./..."
 	go generate $$(go list ./pkg/... ./cmd/...)
 
 test: generate verify ## run all go tests
@@ -115,3 +132,19 @@ dev_cluster_deploy: depend ## deploy into dev cluster
 
 dev_cluster_destroy: depend ## destroy dev cluster
 	KUBE_OIDC_PROXY_ROOT_PATH="$$(pwd)" go run -v ./test/environment/dev destroy
+
+# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
+# $1 - target path with name of binary
+# $2 - package url which can be installed
+# $3 - specific version of package
+define go-install-tool
+@[ -f "$(1)-$(3)" ] || { \
+set -e; \
+package=$(2)@$(3) ;\
+echo "Downloading $${package}" ;\
+rm -f $(1) || true ;\
+GOBIN=$(BINDIR) go install $${package} ;\
+mv $(1) $(1)-$(3) ;\
+} ;\
+ln -sf $(1)-$(3) $(1)
+endef
