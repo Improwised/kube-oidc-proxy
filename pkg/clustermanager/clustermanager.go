@@ -21,6 +21,7 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
@@ -102,12 +103,7 @@ type SecretController struct {
 // Returns:
 //   - A new ClusterManager instance and nil error on success
 //   - nil and an error if configuration fails
-func NewClusterManager(tokenPassthroughEnabled bool, audiences []string, clustersRoleConfigMap map[string]util.RBAC, capiRbacWatcher *crd.CAPIRbacWatcher, maxGoroutines int, rbacAuthorizer authorizer.Interface) (*ClusterManager, error) {
-	// Build Kubernetes configuration for the management cluster
-	config, err := util.BuildConfiguration()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build Kubernetes configuration: %w", err)
-	}
+func NewClusterManager(config *rest.Config, tokenPassthroughEnabled bool, audiences []string, clustersRoleConfigMap map[string]util.RBAC, capiRbacWatcher *crd.CAPIRbacWatcher, maxGoroutines int, rbacAuthorizer authorizer.Interface) (*ClusterManager, error) {
 
 	// Create Kubernetes client for the management cluster
 	client, err := kubernetes.NewForConfig(config)
