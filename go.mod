@@ -2,7 +2,7 @@ module github.com/Improwised/kube-oidc-proxy
 
 go 1.24.0
 
-toolchain go1.24.7
+toolchain go1.24.8
 
 require (
 	github.com/golang/mock v1.6.0
@@ -16,21 +16,20 @@ require (
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/term v0.33.0
 	gopkg.in/square/go-jose.v2 v2.6.0
-	k8s.io/api v0.34.0
-	k8s.io/apiextensions-apiserver v0.34.0
-	k8s.io/apimachinery v0.34.0
-	k8s.io/apiserver v0.34.0
+	k8s.io/api v0.34.1
+	k8s.io/apiextensions-apiserver v0.34.1
+	k8s.io/apimachinery v0.34.1
+	k8s.io/apiserver v0.34.1
 	k8s.io/cli-runtime v0.32.0
-	k8s.io/client-go v0.34.0
-	k8s.io/component-base v0.34.0
+	k8s.io/client-go v0.34.1
+	k8s.io/component-base v0.34.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubernetes v1.32.2
-	sigs.k8s.io/controller-runtime v0.22.1
+	sigs.k8s.io/controller-runtime v0.22.2
 	sigs.k8s.io/kind v0.24.0
 )
 
 require (
-	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
@@ -148,7 +147,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/kms v0.34.0 // indirect
+	k8s.io/kms v0.34.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
