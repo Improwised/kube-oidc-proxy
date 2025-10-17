@@ -23,6 +23,7 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"github.com/Improwised/kube-oidc-proxy/pkg/util/authorizer"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -71,22 +72,21 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				}
 			}
 
+			rbacAuthorizer := authorizer.NewRBACAuthorizer()
+
+			restConfig, err := util.BuildConfiguration()
+			if err != nil {
+				return err
+			}
 			// Initialize CAPI RBAC watcher if available
-			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(clusterConfigs)
+			capiRBACWatcher, err := crd.NewCAPIRbacWatcher(restConfig, clusterConfigs, rbacAuthorizer)
 			if err != nil {
 				klog.Errorf("Failed to initialize CAPI RBAC watcher: %v", err)
 				capiRBACWatcher = nil // Continue without watcher if initialization fails
 			}
 
 			// Create cluster manager to handle dynamic clusters
-			clusterManager, err := clustermanager.NewClusterManager(
-				stopCh,
-				opts.App.TokenPassthrough.Enabled,
-				opts.App.TokenPassthrough.Audiences,
-				clusterRBACConfigs,
-				capiRBACWatcher,
-				opts.App.MaxGoroutines,
-			)
+			clusterManager, err := clustermanager.NewClusterManager(restConfig, opts.App.TokenPassthrough.Enabled, opts.App.TokenPassthrough.Audiences, clusterRBACConfigs, capiRBACWatcher, opts.App.MaxGoroutines, rbacAuthorizer)
 			if err != nil {
 				return fmt.Errorf("failed to create cluster manager: %w", err)
 			}

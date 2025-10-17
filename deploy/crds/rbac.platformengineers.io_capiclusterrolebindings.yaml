@@ -40,9 +40,29 @@ spec:
           spec:
             description: CAPIClusterRoleBindingSpec defines the desired state of CAPIClusterRoleBinding.
             properties:
-              roleRef:
+              durationMinutes:
+                format: int32
+                type: integer
+              roleRefs:
                 items:
-                  type: string
+                  description: RoleRef contains information that points to the role
+                    being used
+                  properties:
+                    apiGroup:
+                      description: APIGroup is the group for the resource being referenced
+                      type: string
+                    kind:
+                      description: Kind is the type of resource being referenced
+                      type: string
+                    name:
+                      description: Name is the name of resource being referenced
+                      type: string
+                  required:
+                  - apiGroup
+                  - kind
+                  - name
+                  type: object
+                  x-kubernetes-map-type: atomic
                 type: array
               subjects:
                 items:
@@ -60,7 +80,7 @@ spec:
                   type: string
                 type: array
             required:
-            - roleRef
+            - roleRefs
             - subjects
             type: object
           status:
