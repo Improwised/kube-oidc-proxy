@@ -57,6 +57,7 @@ type ClusterManager interface {
 	GetCluster(name string) *cluster.Cluster
 	GetAllClusters() []*cluster.Cluster
 	RemoveCluster(name string)
+	CheckPermission(groups []string, subjectName, cluster, namespace, apiGroup, resource, resourceName, verb string) bool
 }
 
 type errorHandlerFn func(http.ResponseWriter, *http.Request, error)

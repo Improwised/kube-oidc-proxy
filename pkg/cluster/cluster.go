@@ -12,7 +12,6 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 )
 
 // Cluster represents a Kubernetes cluster configuration and its associated resources.
@@ -23,7 +22,6 @@ type Cluster struct {
 	Kubeclient            *kubernetes.Clientset                    // Kubernetes client for interacting with the cluster
 	TokenReviewer         *tokenreview.TokenReview                 // Token reviewer for validating tokens
 	SubjectAccessReviewer *subjectaccessreview.SubjectAccessReview // Reviewer for subject access requests
-	Authorizer            *rbac.RBACAuthorizer                     // RBAC authorizer for access control
 	RBACConfig            *util.RBAC                               // RBAC configuration for the cluster
 	ProxyHandler          *httputil.ReverseProxy                   // Reverse proxy handler for forwarding requests
 	ClientTransport       http.RoundTripper                        // Transport for authenticated requests

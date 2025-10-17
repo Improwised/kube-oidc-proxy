@@ -82,6 +82,10 @@ func (m *mockClusterManager) RemoveCluster(name string) {
 	delete(m.clusters, name)
 }
 
+func (m *mockClusterManager) CheckPermission(grops []string, subjectName, cluster, namespace, apiGroup, resource, resourceName, verb string) bool {
+	return true
+}
+
 type fakeRW struct {
 	buffer []byte
 	header http.Header

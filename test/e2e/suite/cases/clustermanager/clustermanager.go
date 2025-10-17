@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Improwised/kube-oidc-proxy/constants"
-	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd"
+	typesv1 "github.com/Improwised/kube-oidc-proxy/pkg/proxy/crd/types/v1"
 	"github.com/Improwised/kube-oidc-proxy/test/e2e/framework"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -34,10 +34,10 @@ var _ = framework.CasesDescribe("Comprehensive Dynamic Cluster Management", func
 	Describe("Basic Dynamic Cluster Operations", func() {
 
 		AfterEach(func() {
-			err := f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err := f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -298,10 +298,10 @@ users:
 			_, err = invalidClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 			Expect(err).To(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -309,7 +309,7 @@ users:
 	Describe("RBAC Integration with Dynamic Clusters", func() {
 		It("should apply global RBAC rules to new dynamic clusters", func() {
 			By("Creating global CAPIClusterRole")
-			globalRole := &crd.CAPIClusterRole{
+			globalRole := &typesv1.CAPIClusterRole{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRole",
@@ -317,8 +317,8 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "global-pod-reader",
 				},
-				Spec: crd.CAPIClusterRoleSpec{
-					CommonRoleSpec: crd.CommonRoleSpec{
+				Spec: typesv1.CAPIClusterRoleSpec{
+					CommonRoleSpec: typesv1.CommonRoleSpec{
 						TargetClusters: []string{"*"},
 						Rules: []v1.PolicyRule{
 							{
@@ -330,11 +330,11 @@ users:
 					},
 				},
 			}
-			err := f.Helper().CreateCRDObject(globalRole, crd.CAPIClusterRoleGVR, "")
+			err := f.Helper().CreateCRDObject(globalRole, constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Creating global CAPIClusterRoleBinding")
-			globalBinding := &crd.CAPIClusterRoleBinding{
+			globalBinding := &typesv1.CAPIClusterRoleBinding{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRoleBinding",
@@ -342,15 +342,15 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "global-pod-reader-binding",
 				},
-				Spec: crd.CAPIClusterRoleBindingSpec{
-					CommonBindingSpec: crd.CommonBindingSpec{
+				Spec: typesv1.CAPIClusterRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef:        []string{"global-pod-reader"},
-						Subjects:       []crd.Subject{{Group: "group-1"}},
+						Subjects:       []typesv1.Subject{{Group: "group-1"}},
 						TargetClusters: []string{"*"},
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(globalBinding, crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().CreateCRDObject(globalBinding, constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Creating dynamic cluster after RBAC rules")
@@ -392,7 +392,7 @@ users:
 			time.Sleep(3 * time.Second)
 
 			By("Creating cluster-specific CAPIClusterRole")
-			specificRole := &crd.CAPIClusterRole{
+			specificRole := &typesv1.CAPIClusterRole{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRole",
@@ -400,8 +400,8 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "specific-configmap-reader",
 				},
-				Spec: crd.CAPIClusterRoleSpec{
-					CommonRoleSpec: crd.CommonRoleSpec{
+				Spec: typesv1.CAPIClusterRoleSpec{
+					CommonRoleSpec: typesv1.CommonRoleSpec{
 						TargetClusters: []string{"specific-rbac-cluster"},
 						Rules: []v1.PolicyRule{
 							{
@@ -413,11 +413,11 @@ users:
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(specificRole, crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().CreateCRDObject(specificRole, constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Creating cluster-specific CAPIClusterRoleBinding")
-			specificBinding := &crd.CAPIClusterRoleBinding{
+			specificBinding := &typesv1.CAPIClusterRoleBinding{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRoleBinding",
@@ -425,15 +425,15 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "specific-configmap-reader-binding",
 				},
-				Spec: crd.CAPIClusterRoleBindingSpec{
-					CommonBindingSpec: crd.CommonBindingSpec{
+				Spec: typesv1.CAPIClusterRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef:        []string{"specific-configmap-reader"},
-						Subjects:       []crd.Subject{{Group: "group-1"}},
+						Subjects:       []typesv1.Subject{{Group: "group-1"}},
 						TargetClusters: []string{"specific-rbac-cluster"},
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(specificBinding, crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().CreateCRDObject(specificBinding, constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Waiting for RBAC reconciliation")
@@ -485,7 +485,7 @@ users:
 			Expect(k8sErrors.IsForbidden(err)).To(BeTrue())
 
 			By("Creating RBAC rules")
-			role := &crd.CAPIClusterRole{
+			role := &typesv1.CAPIClusterRole{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRole",
@@ -493,8 +493,8 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "secret-reader",
 				},
-				Spec: crd.CAPIClusterRoleSpec{
-					CommonRoleSpec: crd.CommonRoleSpec{
+				Spec: typesv1.CAPIClusterRoleSpec{
+					CommonRoleSpec: typesv1.CommonRoleSpec{
 						TargetClusters: []string{"rbac-update-cluster"},
 						Rules: []v1.PolicyRule{
 							{
@@ -506,10 +506,10 @@ users:
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(role, crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().CreateCRDObject(role, constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			binding := &crd.CAPIClusterRoleBinding{
+			binding := &typesv1.CAPIClusterRoleBinding{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRoleBinding",
@@ -517,15 +517,15 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "secret-reader-binding",
 				},
-				Spec: crd.CAPIClusterRoleBindingSpec{
-					CommonBindingSpec: crd.CommonBindingSpec{
+				Spec: typesv1.CAPIClusterRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef:        []string{"secret-reader"},
-						Subjects:       []crd.Subject{{Group: "group-1"}},
+						Subjects:       []typesv1.Subject{{Group: "group-1"}},
 						TargetClusters: []string{"rbac-update-cluster"},
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(binding, crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().CreateCRDObject(binding, constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying access after RBAC creation")
@@ -605,10 +605,10 @@ users:
 				}, 10*time.Second).Should(Succeed(), fmt.Sprintf("Cluster %s should be accessible", clusterName))
 			}
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -683,10 +683,10 @@ users:
 				return err
 			}, 10*time.Second).Should(Succeed())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -741,10 +741,10 @@ users:
 			_, err = staticClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -759,7 +759,7 @@ users:
 			_, err = f.Helper().KubeClient.CoreV1().Secrets("default").Create(context.TODO(), secret, metav1.CreateOptions{})
 			Expect(err).NotTo(HaveOccurred())
 
-			role := &crd.CAPIClusterRole{
+			role := &typesv1.CAPIClusterRole{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRole",
@@ -767,8 +767,8 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cleanup-test-role",
 				},
-				Spec: crd.CAPIClusterRoleSpec{
-					CommonRoleSpec: crd.CommonRoleSpec{
+				Spec: typesv1.CAPIClusterRoleSpec{
+					CommonRoleSpec: typesv1.CommonRoleSpec{
 						TargetClusters: []string{"cleanup-test-cluster"},
 						Rules: []v1.PolicyRule{
 							{
@@ -780,10 +780,10 @@ users:
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(role, crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().CreateCRDObject(role, constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			binding := &crd.CAPIClusterRoleBinding{
+			binding := &typesv1.CAPIClusterRoleBinding{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "rbac.platformengineers.io/v1",
 					Kind:       "CAPIClusterRoleBinding",
@@ -791,15 +791,15 @@ users:
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cleanup-test-role-binding",
 				},
-				Spec: crd.CAPIClusterRoleBindingSpec{
-					CommonBindingSpec: crd.CommonBindingSpec{
+				Spec: typesv1.CAPIClusterRoleBindingSpec{
+					CommonBindingSpec: typesv1.CommonBindingSpec{
 						RoleRef:        []string{"cleanup-test-role"},
-						Subjects:       []crd.Subject{{Group: "group-1"}},
+						Subjects:       []typesv1.Subject{{Group: "group-1"}},
 						TargetClusters: []string{"cleanup-test-cluster"},
 					},
 				},
 			}
-			err = f.Helper().CreateCRDObject(binding, crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().CreateCRDObject(binding, constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying cluster and RBAC work")
@@ -1012,10 +1012,10 @@ users:
 				Expect(err).To(HaveOccurred(), "Invalid cluster %s should not be accessible", clusterName)
 			}
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -1246,10 +1246,10 @@ users:
 			_, err = wrongNsClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 			Expect(err).To(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader", crd.CAPIClusterRoleGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader", constants.CAPIClusterRoleGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 
-			err = f.Helper().DeleteCRDObject("namespace-reader-binding", crd.CAPIClusterRoleBindingGVR, "")
+			err = f.Helper().DeleteCRDObject("namespace-reader-binding", constants.CAPIClusterRoleBindingGVR, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -1310,7 +1310,7 @@ func getValidKubeconfig(f *framework.Framework) ([]byte, error) {
 
 func createRBACForListNamespace(f *framework.Framework) error {
 	By("Creating RBAC rules for list namespace")
-	role := &crd.CAPIClusterRole{
+	role := &typesv1.CAPIClusterRole{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.platformengineers.io/v1",
 			Kind:       "CAPIClusterRole",
@@ -1318,8 +1318,8 @@ func createRBACForListNamespace(f *framework.Framework) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "namespace-reader",
 		},
-		Spec: crd.CAPIClusterRoleSpec{
-			CommonRoleSpec: crd.CommonRoleSpec{
+		Spec: typesv1.CAPIClusterRoleSpec{
+			CommonRoleSpec: typesv1.CommonRoleSpec{
 				TargetClusters: []string{"*"},
 				Rules: []v1.PolicyRule{
 					{
@@ -1331,12 +1331,12 @@ func createRBACForListNamespace(f *framework.Framework) error {
 			},
 		},
 	}
-	err := f.Helper().CreateCRDObject(role, crd.CAPIClusterRoleGVR, "")
+	err := f.Helper().CreateCRDObject(role, constants.CAPIClusterRoleGVR, "")
 	if err != nil {
 		return err
 	}
 
-	binding := &crd.CAPIClusterRoleBinding{
+	binding := &typesv1.CAPIClusterRoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.platformengineers.io/v1",
 			Kind:       "CAPIClusterRoleBinding",
@@ -1344,14 +1344,14 @@ func createRBACForListNamespace(f *framework.Framework) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "namespace-reader-binding",
 		},
-		Spec: crd.CAPIClusterRoleBindingSpec{
-			CommonBindingSpec: crd.CommonBindingSpec{
+		Spec: typesv1.CAPIClusterRoleBindingSpec{
+			CommonBindingSpec: typesv1.CommonBindingSpec{
 				RoleRef:        []string{"namespace-reader"},
-				Subjects:       []crd.Subject{{Group: "group-1"}},
+				Subjects:       []typesv1.Subject{{Group: "group-1"}},
 				TargetClusters: []string{"*"},
 			},
 		},
 	}
-	err = f.Helper().CreateCRDObject(binding, crd.CAPIClusterRoleBindingGVR, "")
+	err = f.Helper().CreateCRDObject(binding, constants.CAPIClusterRoleBindingGVR, "")
 	return err
 }
