@@ -113,9 +113,9 @@ func convertSubjects(subs []typesv1.Subject) []v1.Subject {
 func createClusterRoleBinding(clusterRoleBinding *typesv1.CAPIClusterRoleBinding) []*v1.ClusterRoleBinding {
 
 	subjects := convertSubjects(clusterRoleBinding.Spec.Subjects)
-	clusterRoleBindings := make([]*v1.ClusterRoleBinding, 0, len(clusterRoleBinding.Spec.RoleRef))
+	clusterRoleBindings := make([]*v1.ClusterRoleBinding, 0, len(clusterRoleBinding.Spec.RoleRefs))
 
-	for _, roleRef := range clusterRoleBinding.Spec.RoleRef {
+	for _, roleRef := range clusterRoleBinding.Spec.RoleRefs {
 		clusterRoleBindings = append(clusterRoleBindings, &v1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: fmt.Sprintf("%s-%s", clusterRoleBinding.Name, roleRef),
@@ -125,9 +125,9 @@ func createClusterRoleBinding(clusterRoleBinding *typesv1.CAPIClusterRoleBinding
 			},
 			Subjects: subjects,
 			RoleRef: v1.RoleRef{
-				APIGroup: v1.GroupName,
-				Kind:     "ClusterRole",
-				Name:     roleRef,
+				APIGroup: roleRef.APIGroup,
+				Kind:     roleRef.Kind,
+				Name:     roleRef.Name,
 			},
 		})
 	}
@@ -136,10 +136,9 @@ func createClusterRoleBinding(clusterRoleBinding *typesv1.CAPIClusterRoleBinding
 
 func createRoleBinding(roleBinding *typesv1.CAPIRoleBinding, namespace string, ctrl *CAPIRbacWatcher) []*v1.RoleBinding {
 	subjects := convertSubjects(roleBinding.Spec.Subjects)
-	roleBindings := make([]*v1.RoleBinding, 0, len(roleBinding.Spec.RoleRef))
+	roleBindings := make([]*v1.RoleBinding, 0, len(roleBinding.Spec.RoleRefs))
 
-	for _, roleRef := range roleBinding.Spec.RoleRef {
-		kind := determineRoleRefKindAndAPIGroup(roleRef, ctrl, namespace)
+	for _, roleRef := range roleBinding.Spec.RoleRefs {
 
 		roleBindings = append(roleBindings, &v1.RoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
@@ -151,9 +150,9 @@ func createRoleBinding(roleBinding *typesv1.CAPIRoleBinding, namespace string, c
 			},
 			Subjects: subjects,
 			RoleRef: v1.RoleRef{
-				APIGroup: v1.GroupName,
-				Kind:     kind,
-				Name:     roleRef,
+				APIGroup: roleRef.APIGroup,
+				Kind:     roleRef.Kind,
+				Name:     roleRef.Name,
 			},
 		})
 	}

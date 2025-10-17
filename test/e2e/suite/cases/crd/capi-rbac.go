@@ -61,7 +61,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"test-pod-reader"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "test-pod-reader"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -121,7 +123,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"test-node-reader"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "test-node-reader"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -171,7 +175,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"test-dynamic-role"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "test-dynamic-role"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -230,8 +236,10 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			Spec: typesv1.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
 					TargetClusters: []string{constants.ClusterName},
-					RoleRef:        []string{"existing-cluster-role"},
-					Subjects:       []typesv1.Subject{{Group: "group-1"}},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "existing-cluster-role"},
+					},
+					Subjects: []typesv1.Subject{{Group: "group-1"}},
 				},
 			},
 		}
@@ -285,7 +293,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"cross-ns-role"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "cross-ns-role"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -395,7 +405,10 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"multi-role-pods", "multi-role-services"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "multi-role-pods"},
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "multi-role-services"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -452,7 +465,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIClusterRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"wildcard-role"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "wildcard-role"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},
@@ -524,7 +539,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"wildcard-cluster-role"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "wildcard-cluster-role"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{"*"},
 				},
@@ -581,7 +598,9 @@ var _ = framework.CasesDescribe("CRD CAPI-RBAC", func() {
 			},
 			Spec: typesv1.CAPIRoleBindingSpec{
 				CommonBindingSpec: typesv1.CommonBindingSpec{
-					RoleRef:        []string{"empty-target-role"},
+					RoleRefs: []v1.RoleRef{
+						{APIGroup: v1.GroupName, Kind: "Role", Name: "empty-target-role"},
+					},
 					Subjects:       []typesv1.Subject{{Group: "group-1"}},
 					TargetClusters: []string{constants.ClusterName},
 				},

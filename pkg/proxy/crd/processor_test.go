@@ -152,7 +152,10 @@ func TestCreateClusterRoleBinding(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test-binding"},
 		Spec: typesv1.CAPIClusterRoleBindingSpec{
 			CommonBindingSpec: typesv1.CommonBindingSpec{
-				RoleRef:  []string{"role1", "role2"},
+				RoleRefs: []v1.RoleRef{
+					{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "role1"},
+					{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "role2"},
+				},
 				Subjects: []typesv1.Subject{{User: "test-user"}},
 			},
 		},
@@ -377,7 +380,9 @@ func TestCreateRoleBinding(t *testing.T) {
 				},
 				Spec: typesv1.CAPIRoleBindingSpec{
 					CommonBindingSpec: typesv1.CommonBindingSpec{
-						RoleRef: []string{"test-role"},
+						RoleRefs: []v1.RoleRef{
+							{APIGroup: v1.GroupName, Kind: "Role", Name: "test-role"},
+						},
 						Subjects: []typesv1.Subject{
 							{
 								User: "test-user",
@@ -413,7 +418,9 @@ func TestCreateRoleBinding(t *testing.T) {
 				},
 				Spec: typesv1.CAPIRoleBindingSpec{
 					CommonBindingSpec: typesv1.CommonBindingSpec{
-						RoleRef: []string{"test-cluster-role"},
+						RoleRefs: []v1.RoleRef{
+							{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "test-cluster-role"},
+						},
 						Subjects: []typesv1.Subject{
 							{User: "test-user"},
 						},
@@ -528,8 +535,10 @@ func TestProcessCAPIRoleBinding(t *testing.T) {
 		Spec: typesv1.CAPIRoleBindingSpec{
 			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
-				RoleRef:        []string{"role1"},
-				Subjects:       []typesv1.Subject{{User: "test-user"}},
+				RoleRefs: []v1.RoleRef{
+					{APIGroup: v1.GroupName, Kind: "Role", Name: "role1"},
+				},
+				Subjects: []typesv1.Subject{{User: "test-user"}},
 			},
 			TargetNamespaces: []string{"default"},
 		},
@@ -589,8 +598,10 @@ func TestProcessCAPIClusterRoleBinding(t *testing.T) {
 		Spec: typesv1.CAPIClusterRoleBindingSpec{
 			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
-				RoleRef:        []string{"cluster-role1"},
-				Subjects:       []typesv1.Subject{{Group: "admins"}},
+				RoleRefs: []v1.RoleRef{
+					{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "cluster-role1"},
+				},
+				Subjects: []typesv1.Subject{{Group: "admins"}},
 			},
 		},
 	}
@@ -1088,7 +1099,9 @@ func TestIntegrationScenario_RaceCondition(t *testing.T) {
 		Spec: typesv1.CAPIRoleBindingSpec{
 			CommonBindingSpec: typesv1.CommonBindingSpec{
 				TargetClusters: []string{"cluster1"},
-				RoleRef:        []string{"future-cluster-role"},
+				RoleRefs: []v1.RoleRef{
+					{APIGroup: v1.GroupName, Kind: "ClusterRole", Name: "future-cluster-role"},
+				},
 				Subjects: []typesv1.Subject{
 					{User: "test-user"},
 				},

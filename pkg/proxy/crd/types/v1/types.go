@@ -18,9 +18,9 @@ type Subject struct {
 
 // CommonBindingSpec defines shared fields for role binding specifications.
 type CommonBindingSpec struct {
-	TargetClusters []string  `json:"targetClusters,omitempty"`
-	RoleRef        []string  `json:"roleRef"`
-	Subjects       []Subject `json:"subjects"`
+	TargetClusters []string     `json:"targetClusters,omitempty"`
+	RoleRefs       []v1.RoleRef `json:"roleRefs"`
+	Subjects       []Subject    `json:"subjects"`
 	// +optional
 	DurationMinutes *int32 `json:"durationMinutes,omitempty"`
 }

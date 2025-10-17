@@ -416,9 +416,9 @@ func (in *CommonBindingSpec) DeepCopyInto(out *CommonBindingSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.RoleRef != nil {
-		in, out := &in.RoleRef, &out.RoleRef
-		*out = make([]string, len(*in))
+	if in.RoleRefs != nil {
+		in, out := &in.RoleRefs, &out.RoleRefs
+		*out = make([]rbacv1.RoleRef, len(*in))
 		copy(*out, *in)
 	}
 	if in.Subjects != nil {
