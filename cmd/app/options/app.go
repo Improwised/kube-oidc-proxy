@@ -14,6 +14,7 @@ type KubeOIDCProxyOptions struct {
 	Cluster              Cluster
 	DisableImpersonation bool
 	ReadinessProbePort   int
+	MaxGoroutines        int
 
 	FlushInterval time.Duration
 
@@ -48,6 +49,9 @@ func (k *KubeOIDCProxyOptions) AddFlags(fs *pflag.FlagSet) *KubeOIDCProxyOptions
 
 	fs.IntVarP(&k.ReadinessProbePort, "readiness-probe-port", "P", 8080,
 		"Port to expose readiness probe.")
+
+	fs.IntVar(&k.MaxGoroutines, "max-goroutines", 10,
+		"Maximum number of concurrent goroutines for cluster initialization")
 
 	fs.DurationVar(&k.FlushInterval, "flush-interval", time.Millisecond*50,
 		"Specifies the interval to flush request bodies. If 0ms, "+
