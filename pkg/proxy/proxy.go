@@ -281,13 +281,13 @@ func (p *Proxy) SetupClusterProxy(cluster *cluster.Cluster) error {
 		return err
 	}
 
-	url, err := url.Parse(cluster.RestConfig.Host)
+	targetURL, err := url.Parse(cluster.RestConfig.Host)
 	if err != nil {
 		return fmt.Errorf("failed to parse url: %s", err)
 	}
 
-	proxyHandler := httputil.NewSingleHostReverseProxy(url)
-	cluster.ClientTransport = clientRT
+	proxyHandler := httputil.NewSingleHostReverseProxy(targetURL)
+	cluster.ClientTransport = &recordingRoundTripper{originalRT: clientRT}
 	proxyHandler.Transport = cluster
 
 	if p.config.DisableImpersonation || p.config.TokenReview {
@@ -303,7 +303,7 @@ func (p *Proxy) SetupClusterProxy(cluster *cluster.Cluster) error {
 		if err != nil {
 			return err
 		}
-		cluster.NoAuthClientTransport = noAuthClientRT
+		cluster.NoAuthClientTransport = &recordingRoundTripper{originalRT: noAuthClientRT}
 	}
 
 	proxyHandler.ErrorHandler = p.handleError

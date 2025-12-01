@@ -6,7 +6,9 @@ toolchain go1.23.4
 
 require (
 	github.com/golang/mock v1.6.0
+	github.com/gvcgo/asciinema v0.4.0
 	github.com/heptiolabs/healthcheck v0.0.0-20211123025425-613501dd5deb
+	github.com/olivere/ndjson v0.1.3
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.35.1
 	github.com/sebest/xff v0.0.0-20210106013422-671bd2870b3a
@@ -29,7 +31,11 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.18 // indirect
+	github.com/creack/termios v0.0.0-20160714173321-88d0029e36a1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	gopkg.in/gcfg.v1 v1.2.3 // indirect
+	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/controller-manager v0.32.0 // indirect
 )
 
@@ -77,7 +83,7 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/safetext v0.0.0-20220905092116-b49f7bc46da2 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
