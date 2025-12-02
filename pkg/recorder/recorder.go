@@ -52,20 +52,25 @@ func (rrt *RecordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, 
 
 	// A status code of 101 Switching Protocols indicates a WebSocket upgrade,
 	// which is used for `exec` sessions. We start recording here.
-	if err == nil && res.StatusCode == http.StatusSwitchingProtocols {
-		recorder, recorderErr := rrt.createSessionRecorder(req, res)
-		if recorderErr != nil {
-			klog.Errorf("Failed to create session recorder: %v", recorderErr)
-			// Proceed without recording on error.
-			return res, nil
-		}
-
-		if recorder != nil {
-			// Replace the original response body with our recorder to intercept the data stream.
-			res.Body = recorder
-		}
-	}
-
+			if err == nil && res.StatusCode == http.StatusSwitchingProtocols {
+				// Check if the request is an `exec` session by looking for the "command" query parameter.
+				if len(req.URL.Query()["command"]) == 0 {
+					klog.V(5).Infof("Skipping session recording for non-exec WebSocket upgrade: %s", req.URL.Path)
+					return res, err // Not an exec session, so don't record.
+				}
+	
+				recorder, recorderErr := rrt.createSessionRecorder(req, res)
+				if recorderErr != nil {
+					klog.Errorf("Failed to create session recorder: %v", recorderErr)
+					// Proceed without recording on error.
+					return res, nil
+				}
+	
+				if recorder != nil {
+					// Replace the original response body with our recorder to intercept the data stream.
+					res.Body = recorder
+				}
+			}
 	return res, err
 }
 

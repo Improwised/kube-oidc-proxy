@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"k8s.io/klog/v2"
 )
 
 type S3Uploader struct {
@@ -55,6 +56,10 @@ func (u *S3Uploader) Upload(filePath, objectKey string) error {
 		Key:    aws.String(objectKey),
 		Body:   file,
 	})
+
+	if err == nil {
+		klog.Infof("Successfully uploaded session recording to %s/%s", u.Bucket, objectKey)
+	}
 
 	return err
 }

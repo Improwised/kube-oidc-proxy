@@ -18,7 +18,7 @@ type StorageOptions struct {
 
 func NewStorageOptions(nfs *cliflag.NamedFlagSets) *StorageOptions {
 	s := &StorageOptions{}
-	return s.AddFlags(nfs.FlagSet("S3 Storage"))
+	return s.AddFlags(nfs.FlagSet("Object Storage"))
 }
 
 func (s *StorageOptions) AddFlags(fs *pflag.FlagSet) *StorageOptions {
