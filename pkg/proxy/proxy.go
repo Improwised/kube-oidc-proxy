@@ -17,6 +17,8 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/audit"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/context"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/hooks"
+	"github.com/Improwised/kube-oidc-proxy/pkg/recorder"
+	"github.com/Improwised/kube-oidc-proxy/pkg/storage"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/apis/apiserver"
@@ -49,6 +51,8 @@ type Config struct {
 
 	ExtraUserHeaders                map[string][]string
 	ExtraUserHeadersClientIPEnabled bool
+
+	Storage *options.StorageOptions
 }
 
 // ClusterManager interface for dependency injection
@@ -68,6 +72,7 @@ type Proxy struct {
 	auditor           *audit.Audit
 	clusterManager    ClusterManager
 	config            *Config
+	s3Uploader        *storage.S3Uploader
 
 	hooks       *hooks.Hooks
 	handleError errorHandlerFn
@@ -89,6 +94,7 @@ func (caFromFile CAFromFile) CurrentCABundleContent() []byte {
 func New(
 	oidcOptions *options.OIDCAuthenticationOptions,
 	auditOptions *options.AuditOptions,
+	storageOptions *options.StorageOptions,
 	ssinfo *server.SecureServingInfo,
 	config *Config,
 	clusterManager ClusterManager) (*Proxy, error) {
@@ -96,6 +102,11 @@ func New(
 	// load the CA from the file listed in the options
 	caFromFile := CAFromFile{
 		CAFile: oidcOptions.CAFile,
+	}
+
+	s3Uploader, err := storage.NewS3Uploader(storageOptions)
+	if err != nil {
+		return nil, err
 	}
 
 	// setup static JWT Auhenticator
@@ -146,6 +157,7 @@ func New(
 		oidcRequestAuther: bearertoken.New(tokenAuther),
 		tokenAuther:       tokenAuther,
 		auditor:           auditor,
+		s3Uploader:        s3Uploader,
 		requestInfo:       requestInfo,
 		clusterManager:    clusterManager,
 	}, nil
@@ -287,7 +299,7 @@ func (p *Proxy) SetupClusterProxy(cluster *cluster.Cluster) error {
 	}
 
 	proxyHandler := httputil.NewSingleHostReverseProxy(targetURL)
-	cluster.ClientTransport = &recordingRoundTripper{originalRT: clientRT}
+	cluster.ClientTransport = &recorder.RecordingRoundTripper{OriginalRT: clientRT, S3Uploader: p.s3Uploader}
 	proxyHandler.Transport = cluster
 
 	if p.config.DisableImpersonation || p.config.TokenReview {
@@ -303,7 +315,7 @@ func (p *Proxy) SetupClusterProxy(cluster *cluster.Cluster) error {
 		if err != nil {
 			return err
 		}
-		cluster.NoAuthClientTransport = &recordingRoundTripper{originalRT: noAuthClientRT}
+		cluster.NoAuthClientTransport = &recorder.RecordingRoundTripper{OriginalRT: noAuthClientRT, S3Uploader: p.s3Uploader}
 	}
 
 	proxyHandler.ErrorHandler = p.handleError

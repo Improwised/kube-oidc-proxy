@@ -115,12 +115,14 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 				ExternalAddress:                 opts.SecureServing.BindAddress.String(),
 				ExtraUserHeaders:                opts.App.ExtraHeaderOptions.ExtraUserHeaders,
 				ExtraUserHeadersClientIPEnabled: opts.App.ExtraHeaderOptions.EnableClientIPExtraUserHeader,
+				Storage:                         opts.Storage,
 			}
 
 			// Initialize the proxy with OIDC authentication
 			proxyInstance, err := proxy.New(
 				opts.OIDCAuthentication,
 				opts.Audit,
+				opts.Storage,
 				secureServingInfo,
 				proxyConfig,
 				clusterManager,
