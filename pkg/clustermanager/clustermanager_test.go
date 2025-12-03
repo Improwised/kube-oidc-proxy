@@ -154,6 +154,7 @@ func TestHandleInvalidKubeconfig(t *testing.T) {
 		stopCh:                  stopCh,
 		tokenPassthroughEnabled: false,
 		clustersRoleConfigMap:   make(map[string]util.RBAC),
+		maxGoroutines:           1,
 	}
 
 	// Create a test secret with invalid kubeconfig data
@@ -191,6 +192,7 @@ func TestStaticClusterPersistence(t *testing.T) {
 		stopCh:                  stopCh,
 		tokenPassthroughEnabled: false,
 		clustersRoleConfigMap:   make(map[string]util.RBAC),
+		maxGoroutines:           1,
 	}
 
 	// Add a static cluster
