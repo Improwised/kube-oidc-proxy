@@ -38,16 +38,16 @@ func (s *StorageOptions) Validate() []error {
 
 	var errs []error
 	if s.Endpoint == "" {
-		errs = append(errs, errors.New("--s3-endpoint is required when --s3-enabled is true"))
+		errs = append(errs, errors.New("--object-storage-endpoint is required when --enable-object-storage is true"))
 	}
 	if s.AccessKeyID == "" {
-		errs = append(errs, errors.New("--s3-access-key-id is required when --s3-enabled is true"))
+		errs = append(errs, errors.New("--object-storage-access-key-id is required when --enable-object-storage is true"))
 	}
 	if s.SecretAccessKey == "" {
-		errs = append(errs, errors.New("--s3-secret-access-key is required when --s3-enabled is true"))
+		errs = append(errs, errors.New("--object-storage-secret-access-key is required when --enable-object-storage is true"))
 	}
 	if s.Bucket == "" {
-		errs = append(errs, errors.New("--s3-bucket is required when --s3-enabled is true"))
+		errs = append(errs, errors.New("--object-storage-bucket is required when --enable-object-storage is true"))
 	}
 
 	return errs

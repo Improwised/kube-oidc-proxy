@@ -19,7 +19,7 @@ type S3Uploader struct {
 }
 
 func NewS3Uploader(opts *options.StorageOptions) (*S3Uploader, error) {
-	if !opts.Enabled {
+	if opts == nil || !opts.Enabled {
 		return nil, nil
 	}
 
