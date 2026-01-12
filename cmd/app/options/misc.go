@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/pflag"
 	apimachineryversion "k8s.io/apimachinery/pkg/version"
 	cliflag "k8s.io/component-base/cli/flag"
-	"k8s.io/component-base/cli/globalflag"
 )
 
 type MiscOptions struct {
@@ -46,7 +45,6 @@ func NewMiscOptions(nfs *cliflag.NamedFlagSets) *MiscOptions {
 }
 
 func (m *MiscOptions) AddFlags(fs *pflag.FlagSet) *MiscOptions {
-	globalflag.AddGlobalFlags(fs, AppName)
 	fs.Bool("version", false, "Print version information and quit")
 	return m
 }

@@ -10,6 +10,8 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/util/errors"
 
 	cliflag "k8s.io/component-base/cli/flag"
+	"k8s.io/component-base/logs"
+	logsapi "k8s.io/component-base/logs/api/v1"
 )
 
 const (
@@ -23,6 +25,7 @@ type Options struct {
 	Audit              *AuditOptions
 	Client             *ClientOptions
 	Misc               *MiscOptions
+	Logs               *logs.Options
 	SecretNamespace    string
 	SecretName         string
 
@@ -40,12 +43,14 @@ func New() *Options {
 		Audit:              NewAuditOptions(nfs),
 		Client:             NewClientOptions(nfs),
 		Misc:               NewMiscOptions(nfs),
+		Logs:               logs.NewOptions(),
 
 		nfs: nfs,
 	}
 }
 
 func (o *Options) AddFlags(cmd *cobra.Command) {
+	logsapi.AddFlags(o.Logs, o.nfs.FlagSet("Logging"))
 	// pretty output from kube-apiserver
 	usageFmt := "Usage:\n  %s\n"
 	cols, _, _ := term.GetSize(0)
