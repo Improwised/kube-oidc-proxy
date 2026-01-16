@@ -26,10 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/logs"
 	logsapi "k8s.io/component-base/logs/api/v1"
-
-	"github.com/go-logr/zapr"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // NewRunCommand creates and returns the main cobra command for running the proxy
@@ -54,25 +50,8 @@ func buildRunCommand(stopCh <-chan struct{}, opts *options.Options) *cobra.Comma
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Apply logging options
 			logs.InitLogs()
-
-			if opts.Logs.Format == "json" {
-				// Custom JSON logging with human-readable time and level strings
-				encoderConfig := zap.NewProductionEncoderConfig()
-				encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-				encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-				encoderConfig.TimeKey = "time"
-				encoderConfig.LevelKey = "level"
-				encoderConfig.MessageKey = "msg"
-				encoderConfig.CallerKey = "caller"
-
-				encoder := zapcore.NewJSONEncoder(encoderConfig)
-				core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), zap.NewAtomicLevelAt(zapcore.Level(-int(opts.Logs.Verbosity))))
-				logger := zap.New(core, zap.AddCaller())
-				klog.SetLogger(zapr.NewLogger(logger))
-			} else {
-				if err := logsapi.ValidateAndApply(opts.Logs, nil); err != nil {
-					return fmt.Errorf("failed to apply logging options: %w", err)
-				}
+			if err := logsapi.ValidateAndApply(opts.Logs, nil); err != nil {
+				return fmt.Errorf("failed to apply logging options: %w", err)
 			}
 			defer logs.FlushLogs()
 
