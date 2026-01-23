@@ -23,6 +23,7 @@ type Options struct {
 	Audit              *AuditOptions
 	Client             *ClientOptions
 	Misc               *MiscOptions
+	Storage            *StorageOptions
 	SecretNamespace    string
 	SecretName         string
 
@@ -40,8 +41,8 @@ func New() *Options {
 		Audit:              NewAuditOptions(nfs),
 		Client:             NewClientOptions(nfs),
 		Misc:               NewMiscOptions(nfs),
-
-		nfs: nfs,
+		Storage:            NewStorageOptions(nfs),
+		nfs:                nfs,
 	}
 }
 
@@ -91,6 +92,10 @@ func (o *Options) Validate(cmd *cobra.Command) error {
 	}
 
 	if err := o.Audit.Validate(); len(err) > 0 {
+		errs = append(errs, err...)
+	}
+
+	if err := o.Storage.Validate(); len(err) > 0 {
 		errs = append(errs, err...)
 	}
 
