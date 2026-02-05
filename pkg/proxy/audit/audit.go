@@ -75,11 +75,13 @@ func New(opts *options.AuditOptions, externalAddress string, secureServingInfo *
 	serverConfig.EffectiveVersion = version.NewEffectiveVersion("1.0.31")
 	completed := serverConfig.Complete(nil)
 
+	var client *resty.Client
 	if opts.AuditWebhookServer == "" {
-		return nil, fmt.Errorf("audit webhook server is required")
+		logger.Logger.Warn("Audit webhook server is not provided, custom auditing will be disabled")
+	} else {
+		client = resty.New().SetBaseURL(opts.AuditWebhookServer)
 	}
 
-	client := resty.New().SetBaseURL(opts.AuditWebhookServer)
 	return &Audit{
 		opts:         opts,
 		serverConfig: &completed,
@@ -126,6 +128,9 @@ func (a *Audit) WithUnauthorized(handler http.Handler) http.Handler {
 
 // custrom audit handler
 func (a *Audit) WithCustomAuditLog(handler http.Handler) http.Handler {
+	if a.client == nil {
+		return handler
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		parts := strings.Split(r.URL.Path, "/")
@@ -190,6 +195,9 @@ func (a *Audit) WithCustomAuditLog(handler http.Handler) http.Handler {
 }
 
 func (a *Audit) SendAuditLog(log Log) {
+	if a.client == nil {
+		return
+	}
 	r, err := a.client.R().SetBody(log).Post("/api/v1/k8s-audit-log/webhook")
 	if err != nil {
 		logger.Logger.Error("Error sending audit log to webhook", zap.Error(err))

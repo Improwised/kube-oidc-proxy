@@ -257,7 +257,7 @@ Logs provide insights for debugging and integration with SIEM systems (e.g., Flu
 
 ---
 
-## 🔍 Custom Webhook Auditing
+## 🔍 Custom Webhook Auditing (Optional)
 
 Send audit logs as JSON payloads to a webhook for custom auditing. 🔎
 
@@ -292,7 +292,7 @@ type Log struct {
 
 ### Configuring the Webhook
 
-Use the `--audit-webhook-server` flag:
+To enable custom webhook auditing, use the `--audit-webhook-server` flag:
 
 ```bash
 go run cmd/main.go --audit-webhook-server <webhook-url>
@@ -348,6 +348,7 @@ go build -o ./proxy ./cmd/.
 - **`--tls-private-key-file`**: TLS private key file path.
 - **`--oidc-groups-claim`**: Claim to retrieve user groups (default: `groups`).
 - **`--role-config`**: Role configuration file path.
+- **`--audit-webhook-server`**: Server URL for the webhook audit backend (optional).
 
 ---
 
