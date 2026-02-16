@@ -112,6 +112,8 @@ func (f *fakeRW) Header() http.Header {
 func newFakeR() *http.Request {
 	return &http.Request{
 		RemoteAddr: "fakeAddr",
+		Header:     make(http.Header),
+		URL:        &url.URL{},
 	}
 }
 
@@ -189,7 +191,7 @@ func (f *fakeRT) RoundTrip(h *http.Request) (*http.Response, error) {
 		}
 	}
 
-	logging.LogSuccessfulRequest(h, &user.DefaultInfo{}, &user.DefaultInfo{})
+	logging.LogSuccessfulRequest("test-cluster", h, nil, &user.DefaultInfo{}, &user.DefaultInfo{})
 
 	return nil, nil
 }

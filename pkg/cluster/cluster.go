@@ -10,6 +10,8 @@ import (
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/subjectaccessreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/proxy/tokenreview"
 	"github.com/Improwised/kube-oidc-proxy/pkg/util"
+	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
@@ -45,7 +47,24 @@ func (c *Cluster) RoundTrip(req *http.Request) (*http.Response, error) {
 	if context.NoImpersonation(req) {
 		token := context.BearerToken(req)
 		req.Header.Add("Authorization", token)
-		return c.NoAuthClientTransport.RoundTrip(req)
+
+		resp, err := c.NoAuthClientTransport.RoundTrip(req)
+
+		inboundUser := &user.DefaultInfo{
+			Name: "system:anonymous",
+		}
+		if u, ok := request.UserFrom(req.Context()); ok {
+			inboundUser = &user.DefaultInfo{
+				Name:   u.GetName(),
+				UID:    u.GetUID(),
+				Groups: u.GetGroups(),
+				Extra:  u.GetExtra(),
+			}
+		}
+
+		logging.LogSuccessfulRequest(c.Name, req, resp, inboundUser, nil)
+
+		return resp, err
 	}
 
 	// Get the impersonation headers from the context.
@@ -54,9 +73,11 @@ func (c *Cluster) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, ErrNoImpersonationConfig
 	}
 
-	// Log the request
-	logging.LogSuccessfulRequest(req, *impersonationConf.InboundUser, *impersonationConf.ImpersonatedUser)
-
 	// Push request as admin through round trippers to the API server.
-	return c.ClientTransport.RoundTrip(req)
+	resp, err := c.ClientTransport.RoundTrip(req)
+
+	// Log the request
+	logging.LogSuccessfulRequest(c.Name, req, resp, *impersonationConf.InboundUser, *impersonationConf.ImpersonatedUser)
+
+	return resp, err
 }
