@@ -65,11 +65,11 @@ func LogSuccessfulRequest(clusterName string, req *http.Request, resp *http.Resp
 			path = strings.TrimPrefix(path, "/"+clusterName)
 		}
 		// Create a fake request with trimmed path for NewRequestInfo
-		fakeReq, _ := http.NewRequest(req.Method, path, nil)
-		var err error
-		requestInfo, err = requestInfoFactory.NewRequestInfo(fakeReq)
-		if err == nil {
-			ok = true
+		if fakeReq, err := http.NewRequest(req.Method, path, nil); err == nil {
+			if ri, err := requestInfoFactory.NewRequestInfo(fakeReq); err == nil {
+				requestInfo = ri
+				ok = true
+			}
 		}
 	}
 
@@ -164,11 +164,11 @@ func LogFailedRequest(req *http.Request) {
 			// Assume parts[1] is cluster name
 			path = "/" + strings.Join(parts[2:], "/")
 		}
-		fakeReq, _ := http.NewRequest(req.Method, path, nil)
-		var err error
-		requestInfo, err = requestInfoFactory.NewRequestInfo(fakeReq)
-		if err == nil {
-			ok = true
+		if fakeReq, err := http.NewRequest(req.Method, path, nil); err == nil {
+			if ri, err := requestInfoFactory.NewRequestInfo(fakeReq); err == nil {
+				requestInfo = ri
+				ok = true
+			}
 		}
 	}
 
